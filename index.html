@@ -1,0 +1,200 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Servitech - Profesionales Verificados con Reputación Comprobada</title>
+    <link rel="stylesheet" href="styles.css">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=Poppins:wght@600;700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+</head>
+<body>
+    <!-- HEADER - Ley de Jakob: Patrón estándar de navegación -->
+    <header class="header">
+        <nav class="nav-container">
+            <a href="#inicio" class="logo" aria-label="Servitech, ir al inicio">
+                <i class="fas fa-bolt"></i>
+                <span>Servitech</span>
+            </a>
+            <ul class="nav-menu">
+                <li><a href="#inicio" class="active">Inicio</a></li>
+                <li><a href="#categorias">Categorías</a></li>
+                <li><a href="#profesionales">Profesionales</a></li>
+                <li><a href="#como-funciona">Cómo funciona</a></li>
+            </ul>
+            <div class="nav-actions">
+                <button class="btn-secondary">Iniciar Sesión</button>
+                <button class="btn-primary">Registrarse</button>
+            </div>
+            <button class="menu-toggle" aria-label="Menú">
+                <i class="fas fa-bars"></i>
+            </button>
+        </nav>
+    </header>
+
+    <!-- HERO SECTION - Ley de Fitts: Botones grandes y accesibles -->
+    <section class="hero" id="inicio">
+        <div class="hero-content">
+            <h1 class="hero-title">Encuentra profesionales verificados con <span class="highlight">reputación comprobada</span></h1>
+            <p class="hero-subtitle">Conectamos contratantes con técnicos y profesionales independientes de confianza</p>
+            
+            <!-- Buscador central - Ley de Jakob -->
+            <div class="search-container">
+                <div class="search-box">
+                    <i class="fas fa-search search-icon"></i>
+                    <input type="text" id="searchInput" placeholder="¿Qué servicio necesitas? (Plomería, Electricidad, Desarrollo Web...)" class="search-input">
+                    <button class="btn-search" id="searchBtn">Buscar</button>
+                </div>
+            </div>
+
+            <!-- Botones de acción segmentados - Ley de Fitts -->
+            <div class="hero-actions">
+                <button class="btn-action btn-action-primary">
+                    <i class="fas fa-search"></i>
+                    <span>Buscar un Servicio</span>
+                </button>
+                <button class="btn-action btn-action-secondary">
+                    <i class="fas fa-tools"></i>
+                    <span>Soy Profesional</span>
+                </button>
+            </div>
+        </div>
+        <div class="hero-decoration">
+            <div class="circle circle-1"></div>
+            <div class="circle circle-2"></div>
+        </div>
+    </section>
+
+    <!-- CATEGORÍAS - Ley de Hick: Solo 6 opciones principales -->
+    <section class="categories" id="categorias">
+        <div class="container">
+            <h2 class="section-title">Explora por categoría</h2>
+            <p class="section-subtitle">Encuentra el servicio que necesitas de forma rápida</p>
+            
+            <div class="categories-grid" id="categoriesGrid">
+                <!-- Las categorías se cargarán dinámicamente desde Supabase -->
+                <div class="category-card loading">
+                    <i class="fas fa-spinner fa-spin"></i>
+                    <span>Cargando...</span>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- PROFESIONALES DESTACADOS - Ley de Miller: Información agrupada en bloques -->
+    <section class="professionals" id="profesionales">
+        <div class="container">
+            <h2 class="section-title">Profesionales con mejor reputación</h2>
+            <p class="section-subtitle">Contrata con confianza gracias a nuestro ciclo de verificación</p>
+            
+            <div class="professionals-grid" id="professionalsGrid">
+                <!-- Los profesionales se cargarán dinámicamente desde Supabase -->
+                <div class="professional-card loading">
+                    <i class="fas fa-spinner fa-spin"></i>
+                    <span>Cargando...</span>
+                </div>
+            </div>
+            
+            <div class="view-more">
+                <button class="btn-outline">Ver todos los profesionales</button>
+            </div>
+        </div>
+    </section>
+
+    <!-- CÓMO FUNCIONA - Ley de Jakob: Flujo de 3 pasos conocido -->
+    <section class="how-it-works" id="como-funciona">
+        <div class="container">
+            <h2 class="section-title">¿Cómo funciona Servitech?</h2>
+            <p class="section-subtitle">El ciclo de confianza que garantiza calidad</p>
+            
+            <div class="steps-container">
+                <div class="step">
+                    <div class="step-number">1</div>
+                    <div class="step-icon">
+                        <i class="fas fa-search"></i>
+                    </div>
+                    <h3>Busca</h3>
+                    <p>Explora perfiles verificados por categoría o ubicación</p>
+                </div>
+                
+                <div class="step-connector"></div>
+                
+                <div class="step">
+                    <div class="step-number">2</div>
+                    <div class="step-icon">
+                        <i class="fas fa-handshake"></i>
+                    </div>
+                    <h3>Contrata</h3>
+                    <p>Acuerda el trabajo con profesionales de confianza</p>
+                </div>
+                
+                <div class="step-connector"></div>
+                
+                <div class="step">
+                    <div class="step-number">3</div>
+                    <div class="step-icon">
+                        <i class="fas fa-star"></i>
+                    </div>
+                    <h3>Califica</h3>
+                    <p>Comparte tu experiencia y construye reputación</p>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- FOOTER - Ley de Jakob: Patrón estándar -->
+    <footer class="footer">
+        <div class="container">
+            <div class="footer-content">
+                <div class="footer-brand">
+                    <div class="logo">
+                        <i class="fas fa-bolt"></i>
+                        <span>Servitech</span>
+                    </div>
+                    <p>Conectando profesionales verificados con contratantes que buscan calidad y confianza.</p>
+                </div>
+                
+                <div class="footer-links">
+                    <h4>Plataforma</h4>
+                    <ul>
+                        <li><a href="#">Sobre nosotros</a></li>
+                        <li><a href="#">Cómo funciona</a></li>
+                        <li><a href="#">Precios</a></li>
+                    </ul>
+                </div>
+                
+                <div class="footer-links">
+                    <h4>Soporte</h4>
+                    <ul>
+                        <li><a href="#">Centro de ayuda</a></li>
+                        <li><a href="#">Términos y condiciones</a></li>
+                        <li><a href="#">Política de privacidad</a></li>
+                    </ul>
+                </div>
+                
+                <div class="footer-links">
+                    <h4>Contacto</h4>
+                    <ul>
+                        <li><a href="#">contacto@servitech.com</a></li>
+                        <li><a href="#">+57 300 123 4567</a></li>
+                        <li><a href="#">Magangué, Colombia</a></li>
+                    </ul>
+                </div>
+            </div>
+            
+            <div class="footer-bottom">
+                <p>&copy; 2026 Servitech. Todos los derechos reservados.</p>
+                <div class="social-links">
+                    <a href="#"><i class="fab fa-facebook"></i></a>
+                    <a href="#"><i class="fab fa-instagram"></i></a>
+                    <a href="#"><i class="fab fa-linkedin"></i></a>
+                </div>
+            </div>
+        </div>
+    </footer>
+
+    <!-- Scripts de Supabase y lógica de la aplicación -->
+    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+    <script src="app.js"></script>
+</body>
+</html>
