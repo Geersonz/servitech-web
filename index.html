@@ -29,6 +29,10 @@
             <div class="nav-actions">
                 <button class="btn-secondary">Iniciar Sesión</button>
                 <button class="btn-primary">Registrarse</button>
+                <button class="theme-toggle" type="button" aria-label="Activar modo oscuro"
+                    title="Activar modo oscuro">
+                    <i class="fas fa-moon" aria-hidden="true"></i>
+                </button>
             </div>
             <button class="menu-toggle" type="button" aria-label="Abrir menú de navegación" aria-controls="navMenu"
                 aria-expanded="false">
@@ -46,14 +50,26 @@
             </p>
 
             <!-- Buscador central - Ley de Jakob -->
-            <!-- Buscador central - Ley de Jakob -->
             <div class="search-container">
-                <div class="search-box">
-                    <i class="fas fa-search search-icon"></i>
-                    <input type="text" id="searchInput"
-                        placeholder="¿Qué servicio necesitas? (Plomería, Electricidad, Desarrollo Web...)"
-                        class="search-input">
-                    <button class="btn-search" id="searchBtn">Buscar</button>
+                <div class="search-controls">
+                    <div class="search-box">
+                        <i class="fas fa-search search-icon" aria-hidden="true"></i>
+                        <input type="text" id="searchInput"
+                            placeholder="¿Qué servicio necesitas? (Plomería, Electricidad, Desarrollo Web...)"
+                            class="search-input">
+                        <button class="btn-search" id="searchBtn">Buscar</button>
+                    </div>
+
+                    <div class="search-filters">
+                        <select id="filtroCiudad" class="filter-select" aria-label="Filtrar por ciudad">
+                            <option value="">Todas las ciudades</option>
+                            <option value="Magangué">Magangué</option>
+                            <option value="Cartagena">Cartagena</option>
+                            <option value="Barranquilla">Barranquilla</option>
+                            <option value="Bogotá">Bogotá</option>
+                            <option value="Medellín">Medellín</option>
+                        </select>
+                    </div>
                 </div>
 
                 <!-- Chips de búsqueda popular -->
@@ -76,12 +92,8 @@
                 </div>
             </div>
 
-            <!-- Botones de acción segmentados - Ley de Fitts -->
+            <!-- Acción para profesionales -->
             <div class="hero-actions">
-                <button class="btn-action btn-action-primary">
-                    <i class="fas fa-search"></i>
-                    <span>Buscar un Servicio</span>
-                </button>
                 <button class="btn-action btn-action-secondary">
                     <i class="fas fa-tools"></i>
                     <span>Soy Profesional</span>
@@ -92,6 +104,173 @@
             <div class="circle circle-1"></div>
             <div class="circle circle-2"></div>
             <div class="circle circle-3"></div>
+            <div class="circle circle-4"></div>
+        </div>
+    </section>
+
+    <!-- PÁGINA DE CALIFICACIÓN -->
+    <!-- PANEL DE USUARIO -->
+    <section class="panel-page" id="panelUsuario" hidden>
+        <div class="container">
+            <div class="panel-header">
+                <button class="btn-volver" id="btnVolverPanel" type="button">
+                    <i class="fas fa-arrow-left" aria-hidden="true"></i> Volver al inicio
+                </button>
+            </div>
+
+            <div class="panel-content">
+                <aside class="panel-sidebar">
+                    <div class="panel-user-card" id="panelUserCard"></div>
+                    <nav class="panel-nav" aria-label="Secciones del panel">
+                        <button class="panel-nav-btn active" data-seccion="perfil" type="button">
+                            <i class="fas fa-user" aria-hidden="true"></i> Mi Perfil
+                        </button>
+                        <button class="panel-nav-btn" data-seccion="servicios" type="button">
+                            <i class="fas fa-tools" aria-hidden="true"></i> Mis Servicios
+                        </button>
+                        <button class="panel-nav-btn" data-seccion="publicar" type="button">
+                            <i class="fas fa-plus-circle" aria-hidden="true"></i> Publicar Servicio
+                        </button>
+                        <button class="panel-nav-btn" data-seccion="calificaciones" type="button">
+                            <i class="fas fa-star" aria-hidden="true"></i> Mis Calificaciones
+                        </button>
+                    </nav>
+                </aside>
+
+                <main class="panel-main">
+                    <div class="panel-seccion" id="seccionPerfil">
+                        <h2 class="panel-title">Mi Perfil</h2>
+                        <p class="panel-subtitle">Edita tu información personal</p>
+                        <form id="formEditarPerfil">
+                            <div class="form-row">
+                                <div class="form-group">
+                                    <label for="editNombre">Nombre completo *</label>
+                                    <input type="text" id="editNombre" required>
+                                </div>
+                                <div class="form-group">
+                                    <label for="editEmail">Correo electrónico</label>
+                                    <input type="email" id="editEmail" readonly>
+                                </div>
+                                <div class="form-group">
+                                    <label for="editTelefono">Teléfono / WhatsApp</label>
+                                    <input type="tel" id="editTelefono">
+                                </div>
+                                <div class="form-group">
+                                    <label for="editCiudad">Ciudad</label>
+                                    <input type="text" id="editCiudad">
+                                </div>
+                                <div class="form-group">
+                                    <label for="editZona">Zona o barrio</label>
+                                    <input type="text" id="editZona">
+                                </div>
+                                <div class="form-group">
+                                    <label for="editRol">Tipo de cuenta</label>
+                                    <input type="text" id="editRol" readonly>
+                                </div>
+                            </div>
+                            <button type="submit" class="btn-primary">Guardar cambios</button>
+                        </form>
+                    </div>
+
+                    <div class="panel-seccion" id="seccionServicios" hidden>
+                        <h2 class="panel-title">Mis Servicios</h2>
+                        <p class="panel-subtitle">Gestiona los servicios que has publicado</p>
+                        <div class="mis-servicios-list" id="misServiciosList"></div>
+                    </div>
+
+                    <div class="panel-seccion" id="seccionPublicar" hidden>
+                        <h2 class="panel-title">Publicar nuevo servicio</h2>
+                        <p class="panel-subtitle">Agrega un nuevo servicio a tu portafolio</p>
+                        <div id="formPublicarServicioPanel"></div>
+                    </div>
+
+                    <div class="panel-seccion" id="seccionCalificaciones" hidden>
+                        <h2 class="panel-title">Mis Calificaciones</h2>
+                        <p class="panel-subtitle">Opiniones que han dejado sobre tu trabajo</p>
+                        <div class="mis-calificaciones-list" id="misCalificacionesList"></div>
+                    </div>
+                </main>
+            </div>
+        </div>
+    </section>
+
+    <section class="calificacion-page" id="calificacionPage" hidden>
+        <div class="container">
+            <div class="calificacion-header">
+                <button class="btn-volver" id="btnVolverCalificacion" type="button">
+                    <i class="fas fa-arrow-left" aria-hidden="true"></i> Volver al perfil
+                </button>
+            </div>
+
+            <div class="calificacion-content">
+                <div class="calificacion-main">
+                    <h1 class="calificacion-title">Calificar servicio</h1>
+                    <p class="calificacion-subtitle">Comparte tu experiencia con este profesional para ayudar a otros contratantes.</p>
+
+                    <form id="calificacionFormPage">
+                        <div class="calificacion-profesional-info" id="calProfesionalInfo"></div>
+
+                        <div class="calificacion-step">
+                            <div class="step-indicator">
+                                <span class="step-number">1</span>
+                                <h3>Servicio contratado</h3>
+                            </div>
+                            <div class="form-group">
+                                <label for="calServicioPage">¿Qué servicio contrataste? *</label>
+                                <select id="calServicioPage" required>
+                                    <option value="">Selecciona un servicio</option>
+                                </select>
+                            </div>
+                        </div>
+
+                        <div class="calificacion-step">
+                            <div class="step-indicator">
+                                <span class="step-number">2</span>
+                                <h3>Tu calificación</h3>
+                            </div>
+                            <div class="form-group">
+                                <label>¿Cómo fue tu experiencia? *</label>
+                                <div class="rating-input calificacion-stars-large" id="calificacionStarsPage">
+                                    <input type="hidden" id="calValorPage" value="0" required>
+                                    <button type="button" class="rating-star cal-star-page" data-value="1" aria-label="1 estrella"><i class="fas fa-star" aria-hidden="true"></i></button>
+                                    <button type="button" class="rating-star cal-star-page" data-value="2" aria-label="2 estrellas"><i class="fas fa-star" aria-hidden="true"></i></button>
+                                    <button type="button" class="rating-star cal-star-page" data-value="3" aria-label="3 estrellas"><i class="fas fa-star" aria-hidden="true"></i></button>
+                                    <button type="button" class="rating-star cal-star-page" data-value="4" aria-label="4 estrellas"><i class="fas fa-star" aria-hidden="true"></i></button>
+                                    <button type="button" class="rating-star cal-star-page" data-value="5" aria-label="5 estrellas"><i class="fas fa-star" aria-hidden="true"></i></button>
+                                </div>
+                                <p class="form-hint calificacion-texto-page" id="calificacionTextoPage" aria-live="polite">Haz clic en las estrellas para calificar</p>
+                            </div>
+                        </div>
+
+                        <div class="calificacion-step">
+                            <div class="step-indicator">
+                                <span class="step-number">3</span>
+                                <h3>Tu opinión (opcional)</h3>
+                            </div>
+                            <div class="form-group">
+                                <label for="calComentarioPage">Cuéntanos más sobre tu experiencia</label>
+                                <textarea id="calComentarioPage" maxlength="500" rows="5"
+                                    placeholder="Ej: El profesional llegó puntual, hizo un excelente trabajo y dejó todo limpio..."></textarea>
+                                <p class="form-hint">Máximo 500 caracteres</p>
+                            </div>
+                        </div>
+
+                        <button type="submit" class="btn-primary btn-large">Enviar calificación</button>
+                    </form>
+                </div>
+
+                <aside class="calificacion-sidebar">
+                    <div class="sidebar-card">
+                        <h4>¿Por qué calificar?</h4>
+                        <ul>
+                            <li><i class="fas fa-check-circle" aria-hidden="true"></i> Ayudas a otros contratantes a decidir</li>
+                            <li><i class="fas fa-check-circle" aria-hidden="true"></i> Reconoces el buen trabajo</li>
+                            <li><i class="fas fa-check-circle" aria-hidden="true"></i> Mejoras la calidad de la plataforma</li>
+                            <li><i class="fas fa-check-circle" aria-hidden="true"></i> Construyes una comunidad de confianza</li>
+                        </ul>
+                    </div>
+                </aside>
+            </div>
         </div>
     </section>
 
@@ -102,7 +281,7 @@
                 <button class="btn-outline" id="volverExplorar" type="button">Volver a explorar</button>
             </div>
             <p id="searchEmpty" class="search-empty" role="status" hidden>
-                No encontramos servicios con ese término. Prueba con otro servicio o categoría.
+                No encontramos servicios con esos criterios. Prueba con otro servicio o ubicación.
             </p>
             <div class="results-grid" id="resultadosGrid"></div>
         </div>
@@ -116,10 +295,6 @@
                     <h2 class="section-title">Categorías de servicio</h2>
                     <p class="section-subtitle">Desde trabajos sencillos del hogar hasta proyectos técnicos y profesionales completos.</p>
                 </div>
-                <button class="btn-ver-directorio" id="btnVerDirectorio" type="button">
-                    Ver todo el directorio
-                    <i class="fas fa-arrow-right" aria-hidden="true"></i>
-                </button>
             </div>
 
             <div class="categories-grid" id="categoriesGrid">
@@ -127,6 +302,13 @@
                     <i class="fas fa-spinner fa-spin"></i>
                     <span>Cargando...</span>
                 </div>
+            </div>
+
+            <div class="view-more categories-view-more">
+                <button class="btn-ver-directorio" id="btnVerDirectorio" type="button" aria-expanded="false">
+                    <span>Ver todas las categorías</span>
+                    <i class="fas fa-arrow-right" aria-hidden="true"></i>
+                </button>
             </div>
         </div>
     </section>
@@ -146,7 +328,9 @@
             </div>
 
             <div class="view-more">
-                <button class="btn-outline">Ver todos los profesionales</button>
+                <button class="btn-outline" id="btnVerProfesionales" type="button" aria-expanded="false">
+                    Ver todos los profesionales
+                </button>
             </div>
         </div>
     </section>

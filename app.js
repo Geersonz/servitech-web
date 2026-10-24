@@ -227,6 +227,48 @@ async function cargarCategorias() {
         fragment.appendChild(card);
     });
     grid.replaceChildren(fragment);
+
+    const botonDirectorio = document.getElementById('btnVerDirectorio');
+    const mostrarTodas = botonDirectorio?.getAttribute('aria-expanded') === 'true';
+    const tarjetas = [...grid.querySelectorAll('.category-card')];
+    tarjetas.forEach((tarjeta, index) => {
+        tarjeta.hidden = !mostrarTodas && index >= 6;
+    });
+    if (botonDirectorio) {
+        botonDirectorio.hidden = tarjetas.length <= 6;
+        botonDirectorio.setAttribute('aria-expanded', String(mostrarTodas));
+        botonDirectorio.querySelector('span').textContent = mostrarTodas
+            ? 'Ver menos categorías'
+            : 'Ver todas las categorías';
+        const icono = botonDirectorio.querySelector('i');
+        icono.className = `fas ${mostrarTodas ? 'fa-arrow-up' : 'fa-arrow-right'}`;
+    }
+}
+
+// ============================================
+// GENERAR ESTRELLAS POR INTERVALOS
+// 5.0 exacto = 5 llenas | 4.1 a 4.9 = 4 llenas + media
+// ============================================
+function generarEstrellasHTML(valor) {
+    const numero = Number(valor);
+    const rating = Number.isFinite(numero) ? Math.max(0, Math.min(5, numero)) : 0;
+    const ratingMostrado = Number(rating.toFixed(1));
+    const llenas = Math.floor(ratingMostrado);
+    const media = ratingMostrado > llenas && ratingMostrado < 5 ? 1 : 0;
+    const vacias = 5 - llenas - media;
+
+    return '<i class="fas fa-star"></i>'.repeat(llenas) +
+           '<i class="fas fa-star-half-stroke"></i>'.repeat(media) +
+           '<i class="far fa-star"></i>'.repeat(vacias);
+}
+
+function obtenerPaletaAvatar(perfilId) {
+    const id = String(perfilId ?? '');
+    let hash = 0;
+    for (let index = 0; index < id.length; index += 1) {
+        hash = (hash * 31 + id.charCodeAt(index)) >>> 0;
+    }
+    return hash % 6;
 }
 
 // ============================================
@@ -245,10 +287,14 @@ async function cargarProfesionales(limite = 3) {
 
     if (error) {
         console.error('Error al cargar profesionales:', error);
-        return;
+        return false;
     }
 
     const grid = document.getElementById('professionalsGrid');
+    if (!grid) {
+        console.error('No se encontró el contenedor de profesionales.');
+        return false;
+    }
     grid.innerHTML = '';
 
     data.forEach(perfil => {
@@ -257,14 +303,13 @@ async function cargarProfesionales(limite = 3) {
         
         const nombre = perfil.usuarios?.nombre || 'Profesional';
         const iniciales = nombre.split(' ').map(n => n[0]).join('').substring(0, 2).toUpperCase();
+        const paletaAvatar = obtenerPaletaAvatar(perfil.id);
         
-        const estrellas = Math.round(perfil.reputacion_promedio || 0);
-        const estrellasHTML = '<i class="fas fa-star"></i>'.repeat(estrellas) + 
-                              '<i class="far fa-star"></i>'.repeat(5 - estrellas);
+        const estrellasHTML = generarEstrellasHTML(perfil.reputacion_promedio);
         
         card.innerHTML = `
             <div class="professional-header">
-                <div class="professional-avatar">${iniciales}</div>
+                <div class="professional-avatar" data-avatar-palette="${paletaAvatar}">${iniciales}</div>
                 <div class="professional-info">
                     <h3>${nombre}</h3>
                     <div class="professional-specialty">${perfil.descripcion?.substring(0, 50) || 'Profesional'}...</div>
@@ -295,10 +340,21 @@ async function cargarProfesionales(limite = 3) {
     // Agregar event listeners a los botones de ver perfil
     document.querySelectorAll('.btn-view-profile').forEach(btn => {
         btn.addEventListener('click', (e) => {
-            const perfilId = e.target.dataset.id;
+            const perfilId = e.currentTarget.dataset.id;
             mostrarPerfilProfesional(perfilId);
         });
     });
+
+    const botonVerProfesionales = document.getElementById('btnVerProfesionales');
+    if (botonVerProfesionales) {
+        const mostrandoTodos = limite > 3;
+        botonVerProfesionales.textContent = mostrandoTodos
+            ? 'Ver menos profesionales'
+            : 'Ver todos los profesionales';
+        botonVerProfesionales.setAttribute('aria-expanded', String(mostrandoTodos));
+    }
+
+    return true;
 }
 
 // ============================================
@@ -306,9 +362,10 @@ async function cargarProfesionales(limite = 3) {
 // ============================================
 async function realizarBusqueda() {
     const termino = document.getElementById('searchInput').value.trim();
-    
-    if (!termino) {
-        mostrarToast('Por favor ingresa un término de búsqueda.', 'error');
+    const filtroCiudad = document.getElementById('filtroCiudad')?.value || '';
+
+    if (!termino && !filtroCiudad) {
+        mostrarToast('Por favor ingresa un término de búsqueda o selecciona una ubicación.', 'error');
         return;
     }
 
@@ -325,6 +382,7 @@ async function realizarBusqueda() {
         return;
     }
 
+    const escaparPatron = valor => valor.replace(/[\\%_]/g, caracter => `\\${caracter}`);
     const selectServicios = `
         *,
         perfiles_profesionales(
@@ -334,37 +392,39 @@ async function realizarBusqueda() {
         ),
         categorias(nombre)
     `;
-    const patron = `%${termino}%`;
-    const patronOr = `"%${termino.replace(/\\/g, '\\\\').replace(/"/g, '\\"')}%"`;
+    const patron = `%${escaparPatron(termino)}%`;
+    const patronOr = `"%${escaparPatron(termino).replace(/"/g, '\\"')}%"`;
+    const crearConsulta = buscarCategoria => {
+        let consulta = supabaseClient
+            .from('servicios')
+            .select(buscarCategoria
+                ? `*, perfiles_profesionales(id, usuarios(nombre), reputacion_promedio), categorias!inner(nombre)`
+                : selectServicios);
+
+        if (termino) {
+            if (buscarCategoria) {
+                consulta = consulta.ilike('categorias.nombre', patron);
+            } else {
+                consulta = consulta.or(`titulo.ilike.${patronOr},descripcion.ilike.${patronOr}`);
+            }
+        }
+        if (filtroCiudad) consulta = consulta.ilike('ciudad', filtroCiudad);
+
+        return consulta;
+    };
+
     let responses;
     try {
-        responses = await Promise.all([
-            supabaseClient
-                .from('servicios')
-                .select(selectServicios)
-                .or(`titulo.ilike.${patronOr},descripcion.ilike.${patronOr}`),
-            supabaseClient
-                .from('servicios')
-                .select(`
-                    *,
-                    perfiles_profesionales(
-                        id,
-                        usuarios(nombre),
-                        reputacion_promedio
-                    ),
-                    categorias!inner(nombre)
-                `)
-                .ilike('categorias.nombre', patron)
-        ]);
+        responses = termino
+            ? await Promise.all([crearConsulta(false), crearConsulta(true)])
+            : [await crearConsulta(false)];
     } catch (error) {
         console.error('No se pudieron consultar los servicios:', error);
         mostrarToast('No se pudo realizar la búsqueda. Intenta de nuevo.', 'error');
         return;
     }
-    const [serviciosResponse, categoriaResponse] = responses;
 
-    const errorResponse = [serviciosResponse, categoriaResponse]
-        .find(response => response.error);
+    const errorResponse = responses.find(response => response.error);
     if (errorResponse) {
         console.error('Error en la búsqueda:', errorResponse.error);
         mostrarToast('No se pudo realizar la búsqueda. Intenta de nuevo.', 'error');
@@ -372,8 +432,8 @@ async function realizarBusqueda() {
     }
 
     const servicios = new Map();
-    [serviciosResponse, categoriaResponse].forEach(response => {
-        response.data.forEach(servicio => servicios.set(servicio.id, servicio));
+    responses.forEach(response => {
+        (response.data || []).forEach(servicio => servicios.set(servicio.id, servicio));
     });
     const resultados = [...servicios.values()];
 
@@ -386,17 +446,22 @@ async function realizarBusqueda() {
     resultadosSection.hidden = false;
     if (categoriasSection) categoriasSection.hidden = true;
     if (profesionalesSection) profesionalesSection.hidden = true;
-    resultadosTitulo.textContent = `Resultados para: "${termino}"`;
+    const criterios = [];
+    if (termino) criterios.push(`para: "${termino}"`);
+    if (filtroCiudad) criterios.push(`en ${filtroCiudad}`);
+    resultadosTitulo.textContent = criterios.length
+        ? `Resultados ${criterios.join(' · ')}`
+        : 'Resultados';
     resultadosGrid.replaceChildren();
 
     if (resultados.length === 0) {
         resultadosGrid.hidden = true;
         searchEmpty.hidden = false;
-        mostrarToast(`No se encontraron servicios para "${termino}".`, 'info');
+        mostrarToast('No se encontraron servicios con esos criterios.', 'info');
     } else {
         resultadosGrid.hidden = false;
         searchEmpty.hidden = true;
-        mostrarToast(`Se encontraron ${resultados.length} servicios para "${termino}".`, 'success');
+        mostrarToast(`Se encontraron ${resultados.length} servicios.`, 'success');
 
         resultados.forEach(servicio => {
             const profesional = Array.isArray(servicio.perfiles_profesionales)
@@ -429,6 +494,18 @@ async function realizarBusqueda() {
                 ? `${descriptionText.slice(0, 140)}…`
                 : descriptionText;
             card.appendChild(description);
+
+            if (servicio.ciudad || servicio.zona_barrio) {
+                const location = document.createElement('div');
+                location.className = 'result-card-location';
+                const locationIcon = document.createElement('i');
+                locationIcon.className = 'fas fa-map-marker-alt';
+                locationIcon.setAttribute('aria-hidden', 'true');
+                const locationText = document.createElement('span');
+                locationText.textContent = [servicio.ciudad, servicio.zona_barrio].filter(Boolean).join(' - ');
+                location.append(locationIcon, locationText);
+                card.appendChild(location);
+            }
 
             const details = document.createElement('div');
             details.className = 'result-card-details';
@@ -464,6 +541,912 @@ async function realizarBusqueda() {
 }
 
 // ============================================
+// PANEL DE USUARIO
+// ============================================
+let usuarioPanelActual = null;
+let perfilProfesionalPanelId = null;
+let panelEstadoAnterior = null;
+const VISTA_ACTIVA_STORAGE_KEY = 'servitech-active-view';
+const BORRADOR_CALIFICACION_STORAGE_KEY = 'servitech-rating-draft';
+let restaurarVistaCalificacion = null;
+let estadoVistasCalificacionInicial = null;
+let displayFooterCalificacionInicial = '';
+
+function guardarVistaActiva(vista) {
+    sessionStorage.setItem(VISTA_ACTIVA_STORAGE_KEY, JSON.stringify(vista));
+}
+
+function limpiarEstadoCalificacion() {
+    try {
+        const vistaActiva = JSON.parse(sessionStorage.getItem(VISTA_ACTIVA_STORAGE_KEY) || 'null');
+        if (vistaActiva?.tipo === 'calificacion') {
+            sessionStorage.removeItem(VISTA_ACTIVA_STORAGE_KEY);
+        }
+    } catch (error) {
+        console.error('No se pudo leer la vista activa guardada:', error);
+        sessionStorage.removeItem(VISTA_ACTIVA_STORAGE_KEY);
+    }
+    sessionStorage.removeItem(BORRADOR_CALIFICACION_STORAGE_KEY);
+}
+
+const seccionesOcultasAlAbrirPanel = [
+    '#inicio',
+    '#categorias',
+    '#profesionales',
+    '#estadisticas',
+    '#como-funciona',
+    '#resultadosBusqueda',
+    '#calificacionPage',
+    '.footer'
+];
+
+function cambiarVisibilidadPanel(abrir) {
+    const panel = document.getElementById('panelUsuario');
+    if (!panel) {
+        console.error('No se encontró el panel de usuario.');
+        mostrarToast('No se pudo abrir el panel de usuario.', 'error');
+        return false;
+    }
+
+    if (abrir) {
+        if (!panelEstadoAnterior) {
+            panelEstadoAnterior = seccionesOcultasAlAbrirPanel
+                .flatMap(selector => [...document.querySelectorAll(selector)])
+                .map(elemento => [elemento, elemento.hidden]);
+        }
+        panel.hidden = false;
+        panelEstadoAnterior.forEach(([elemento]) => { elemento.hidden = true; });
+        return true;
+    }
+
+    panel.hidden = true;
+    panelEstadoAnterior?.forEach(([elemento, estabaOculto]) => {
+        elemento.hidden = estabaOculto;
+    });
+    panelEstadoAnterior = null;
+    return true;
+}
+
+function mostrarSeccionPanelSinCarga(seccion) {
+    const secciones = {
+        perfil: 'seccionPerfil',
+        servicios: 'seccionServicios',
+        publicar: 'seccionPublicar',
+        calificaciones: 'seccionCalificaciones'
+    };
+    const id = secciones[seccion] || secciones.perfil;
+    document.querySelectorAll('.panel-seccion').forEach(elemento => {
+        elemento.hidden = elemento.id !== id;
+    });
+    document.querySelectorAll('.panel-nav-btn').forEach(boton => {
+        boton.classList.toggle('active', boton.dataset.seccion === seccion);
+    });
+}
+
+function restaurarVistaInicio() {
+    if (restaurarVistaCalificacion) {
+        restaurarVistaCalificacion();
+        restaurarVistaCalificacion = null;
+    }
+    cambiarVisibilidadPanel(false);
+    limpiarEstadoCalificacion();
+    guardarVistaActiva({ tipo: 'inicio' });
+}
+
+async function abrirPanelUsuario(seccionInicial = 'perfil', { desplazar = true } = {}) {
+    try {
+        const { data: authData, error: authError } = await supabaseClient.auth.getUser();
+        if (authError) throw authError;
+        if (!authData.user) {
+            mostrarToast('Debes iniciar sesión.', 'error');
+            mostrarModalAuth('login');
+            return;
+        }
+
+        const { data: usuario, error: usuarioError } = await supabaseClient
+            .from('usuarios')
+            .select('id, nombre, email, telefono, ciudad, zona_barrio, rol')
+            .eq('email', authData.user.email)
+            .maybeSingle();
+        if (usuarioError) throw usuarioError;
+        if (!usuario) {
+            mostrarToast('No se encontró tu perfil.', 'error');
+            return;
+        }
+
+        const { data: perfil, error: perfilError } = await supabaseClient
+            .from('perfiles_profesionales')
+            .select('id')
+            .eq('usuario_id', usuario.id)
+            .maybeSingle();
+        if (perfilError) throw perfilError;
+
+        usuarioPanelActual = usuario;
+        perfilProfesionalPanelId = perfil?.id ?? null;
+
+        const userCard = document.getElementById('panelUserCard');
+        const nombre = usuario.nombre || 'Usuario';
+        const iniciales = nombre.split(/\s+/).filter(Boolean).map(parte => parte[0]).join('').slice(0, 2).toUpperCase();
+        userCard.replaceChildren();
+
+        const avatar = document.createElement('div');
+        avatar.className = 'panel-user-avatar';
+        avatar.dataset.avatarPalette = String(obtenerPaletaAvatar(usuario.email));
+        avatar.textContent = iniciales;
+        const nombreElemento = document.createElement('div');
+        nombreElemento.className = 'panel-user-name';
+        nombreElemento.textContent = nombre;
+        const emailElemento = document.createElement('div');
+        emailElemento.className = 'panel-user-email';
+        emailElemento.textContent = usuario.email || '';
+        userCard.append(avatar, nombreElemento, emailElemento);
+
+        document.getElementById('editNombre').value = usuario.nombre || '';
+        document.getElementById('editEmail').value = usuario.email || '';
+        document.getElementById('editTelefono').value = usuario.telefono || '';
+        document.getElementById('editCiudad').value = usuario.ciudad || '';
+        document.getElementById('editZona').value = usuario.zona_barrio || '';
+        document.getElementById('editRol').value = usuario.rol || 'No definido';
+
+        const formEditarPerfil = document.getElementById('formEditarPerfil');
+        formEditarPerfil.onsubmit = async event => {
+            event.preventDefault();
+
+            const submitBtn = formEditarPerfil.querySelector('button[type="submit"]');
+            submitBtn.disabled = true;
+            submitBtn.textContent = 'Guardando...';
+
+            try {
+                const nombreActualizado = document.getElementById('editNombre').value.trim();
+                const telefono = document.getElementById('editTelefono').value.trim();
+                const ciudad = document.getElementById('editCiudad').value.trim();
+                const zona = document.getElementById('editZona').value.trim();
+
+                if (!nombreActualizado) {
+                    mostrarToast('El nombre es obligatorio.', 'error');
+                    document.getElementById('editNombre').focus();
+                    return;
+                }
+
+                const { error } = await supabaseClient
+                    .from('usuarios')
+                    .update({
+                        nombre: nombreActualizado,
+                        telefono: telefono || null,
+                        ciudad: ciudad || null,
+                        zona_barrio: zona || null
+                    })
+                    .eq('id', usuario.id);
+
+                if (error) {
+                    console.error('Error al actualizar perfil:', error);
+                    mostrarToast('No se pudieron guardar los cambios.', 'error');
+                    return;
+                }
+
+                usuarioPanelActual = {
+                    ...usuarioPanelActual,
+                    nombre: nombreActualizado,
+                    telefono: telefono || null,
+                    ciudad: ciudad || null,
+                    zona_barrio: zona || null
+                };
+                mostrarToast('¡Perfil actualizado correctamente!', 'success');
+
+                if (authData.user.email) {
+                    await actualizarHeaderParaUsuarioLogueado(authData.user.email);
+                }
+
+                const userCard = document.getElementById('panelUserCard');
+                const nuevasIniciales = nombreActualizado.split(/\s+/)
+                    .filter(Boolean)
+                    .map(parte => parte[0])
+                    .join('')
+                    .slice(0, 2)
+                    .toUpperCase();
+                const avatarActualizado = document.createElement('div');
+                avatarActualizado.className = 'panel-user-avatar';
+                avatarActualizado.dataset.avatarPalette = String(obtenerPaletaAvatar(usuarioPanelActual.email));
+                avatarActualizado.textContent = nuevasIniciales;
+                const nombreElementoActualizado = document.createElement('div');
+                nombreElementoActualizado.className = 'panel-user-name';
+                nombreElementoActualizado.textContent = nombreActualizado;
+                const emailElementoActualizado = document.createElement('div');
+                emailElementoActualizado.className = 'panel-user-email';
+                emailElementoActualizado.textContent = usuario.email || '';
+                userCard.replaceChildren(avatarActualizado, nombreElementoActualizado, emailElementoActualizado);
+            } catch (error) {
+                console.error('Error inesperado al actualizar perfil:', error);
+                mostrarToast('Ocurrió un error. Intenta de nuevo.', 'error');
+            } finally {
+                if (submitBtn.isConnected) {
+                    submitBtn.disabled = false;
+                    submitBtn.textContent = 'Guardar cambios';
+                }
+            }
+        };
+
+        if (!cambiarVisibilidadPanel(true)) return;
+        await mostrarSeccionPanel(seccionInicial);
+        if (desplazar) {
+            document.getElementById('panelUsuario').scrollIntoView({ behavior: 'smooth', block: 'start' });
+        }
+    } catch (error) {
+        sessionStorage.removeItem(VISTA_ACTIVA_STORAGE_KEY);
+        console.error('Error al abrir el panel de usuario:', error);
+        mostrarToast('No se pudo cargar tu panel. Intenta de nuevo.', 'error');
+    }
+}
+
+async function mostrarSeccionPanel(seccion) {
+    const seccionMap = {
+        perfil: 'seccionPerfil',
+        servicios: 'seccionServicios',
+        publicar: 'seccionPublicar',
+        calificaciones: 'seccionCalificaciones'
+    };
+    const seccionId = seccionMap[seccion];
+    if (!seccionId) {
+        console.error('Se solicitó una sección desconocida del panel:', seccion);
+        return;
+    }
+
+    document.querySelectorAll('.panel-seccion').forEach(elemento => {
+        elemento.hidden = elemento.id !== seccionId;
+    });
+    document.querySelectorAll('.panel-nav-btn').forEach(boton => {
+        boton.classList.toggle('active', boton.dataset.seccion === seccion);
+    });
+    guardarVistaActiva({ tipo: 'panel', seccion });
+
+    if (seccion === 'servicios') await cargarMisServicios();
+    if (seccion === 'calificaciones') await cargarMisCalificaciones();
+    if (seccion === 'publicar') {
+        const contenedor = document.getElementById('formPublicarServicioPanel');
+        if (!contenedor.querySelector('button')) {
+            const descripcion = document.createElement('p');
+            descripcion.className = 'panel-empty';
+            descripcion.textContent = 'Completa el formulario para publicar un servicio en tu perfil profesional.';
+            const boton = document.createElement('button');
+            boton.type = 'button';
+            boton.className = 'btn-primary';
+            boton.textContent = 'Abrir formulario de publicación';
+            boton.addEventListener('click', mostrarModalRegistroProfesional);
+            contenedor.replaceChildren(descripcion, boton);
+        }
+    }
+}
+
+async function cargarMisServicios() {
+    const lista = document.getElementById('misServiciosList');
+    if (!lista) return;
+
+    lista.replaceChildren();
+    const cargando = document.createElement('p');
+    cargando.className = 'panel-empty';
+    cargando.textContent = 'Cargando servicios...';
+    lista.appendChild(cargando);
+
+    try {
+        const { data: authData, error: authError } = await supabaseClient.auth.getUser();
+        if (authError) throw authError;
+        if (!authData.user) {
+            lista.replaceChildren();
+            mostrarToast('Debes iniciar sesión para ver tus servicios.', 'error');
+            mostrarModalAuth('login');
+            return;
+        }
+
+        let perfilId = perfilProfesionalPanelId;
+        if (!perfilId || usuarioPanelActual?.email !== authData.user.email) {
+            const { data: usuario, error: usuarioError } = await supabaseClient
+                .from('usuarios')
+                .select('id')
+                .eq('email', authData.user.email)
+                .maybeSingle();
+            if (usuarioError) throw usuarioError;
+            if (!usuario) {
+                throw new Error('No se encontró el registro del usuario autenticado.');
+            }
+
+            const { data: perfil, error: perfilError } = await supabaseClient
+                .from('perfiles_profesionales')
+                .select('id')
+                .eq('usuario_id', usuario.id)
+                .maybeSingle();
+            if (perfilError) throw perfilError;
+            perfilId = perfil?.id ?? null;
+            perfilProfesionalPanelId = perfilId;
+        }
+
+        if (!perfilId) {
+            const mensaje = document.createElement('p');
+            mensaje.className = 'panel-empty';
+            mensaje.textContent = 'Esta cuenta aún no tiene un perfil profesional ni servicios publicados.';
+            const botonCrear = document.createElement('button');
+            botonCrear.type = 'button';
+            botonCrear.className = 'btn-primary';
+            botonCrear.textContent = 'Crear mi perfil profesional';
+            botonCrear.addEventListener('click', () => mostrarSeccionPanel('publicar'));
+            lista.replaceChildren(mensaje, botonCrear);
+            return;
+        }
+
+        const { data: servicios, error } = await supabaseClient
+            .from('servicios')
+            .select('id, profesional_id, titulo, descripcion, precio, ciudad, zona_barrio, disponibilidad')
+            .eq('profesional_id', perfilId)
+            .order('id', { ascending: false });
+        if (error) throw error;
+
+        if (!servicios?.length) {
+            const vacio = document.createElement('p');
+            vacio.className = 'panel-empty';
+            vacio.textContent = 'Aún no has publicado ningún servicio.';
+            lista.replaceChildren(vacio);
+            return;
+        }
+
+        lista.replaceChildren();
+        servicios.forEach(servicio => {
+            const item = document.createElement('article');
+            item.className = 'mis-servicio-item';
+            const info = document.createElement('div');
+            info.className = 'mis-servicio-info';
+            const titulo = document.createElement('h4');
+            titulo.textContent = servicio.titulo || 'Servicio sin título';
+            const descripcion = document.createElement('p');
+            const textoDescripcion = servicio.descripcion || 'Sin descripción';
+            descripcion.textContent = textoDescripcion.length > 100
+                ? `${textoDescripcion.slice(0, 100)}...`
+                : textoDescripcion;
+
+            const meta = document.createElement('div');
+            meta.className = 'mis-servicio-meta';
+            const precio = document.createElement('span');
+            precio.textContent = `$${Number(servicio.precio || 0).toLocaleString('es-CO')} COP`;
+            const estado = document.createElement('span');
+            estado.className = servicio.disponibilidad === false ? 'servicio-no-disponible' : 'servicio-disponible';
+            estado.textContent = servicio.disponibilidad === false ? 'No disponible' : 'Disponible';
+            meta.append(precio, estado);
+            if (servicio.ciudad || servicio.zona_barrio) {
+                const ubicacion = document.createElement('span');
+                ubicacion.textContent = [servicio.ciudad, servicio.zona_barrio].filter(Boolean).join(' · ');
+                meta.appendChild(ubicacion);
+            }
+            info.append(titulo, descripcion, meta);
+
+            const acciones = document.createElement('div');
+            acciones.className = 'mis-servicio-acciones';
+            const botonEditar = document.createElement('button');
+            botonEditar.type = 'button';
+            botonEditar.className = 'btn-editar';
+            botonEditar.dataset.id = servicio.id;
+            botonEditar.textContent = 'Editar';
+            botonEditar.addEventListener('click', () => mostrarModalEditarServicio(servicio));
+
+            const botonEliminar = document.createElement('button');
+            botonEliminar.type = 'button';
+            botonEliminar.className = 'btn-eliminar';
+            botonEliminar.dataset.id = servicio.id;
+            botonEliminar.textContent = 'Eliminar';
+            botonEliminar.addEventListener('click', async () => {
+                if (window.confirm('¿Estás seguro de que deseas eliminar este servicio? Esta acción no se puede deshacer.')) {
+                    await eliminarServicio(servicio.id);
+                }
+            });
+
+            acciones.append(botonEditar, botonEliminar);
+            item.append(info, acciones);
+            lista.appendChild(item);
+        });
+    } catch (error) {
+        console.error('Error al cargar los servicios del usuario:', error);
+        const mensaje = document.createElement('p');
+        mensaje.className = 'panel-empty';
+        mensaje.textContent = 'No se pudieron cargar tus servicios. Intenta de nuevo.';
+        lista.replaceChildren(mensaje);
+        mostrarToast('No se pudieron cargar tus servicios.', 'error');
+    }
+}
+
+async function eliminarServicio(id) {
+    if (!perfilProfesionalPanelId) {
+        mostrarToast('No se pudo verificar el propietario del servicio.', 'error');
+        return;
+    }
+
+    try {
+        const { data: authData, error: authError } = await supabaseClient.auth.getUser();
+        if (authError) throw authError;
+        if (!authData.user || authData.user.email !== usuarioPanelActual?.email) {
+            mostrarToast('Tu sesión expiró. Inicia sesión nuevamente.', 'error');
+            return;
+        }
+
+        const { error } = await supabaseClient
+            .from('servicios')
+            .delete()
+            .eq('id', id)
+            .eq('profesional_id', perfilProfesionalPanelId);
+        if (error) throw error;
+
+        mostrarToast('Servicio eliminado correctamente.', 'success');
+        await cargarMisServicios();
+    } catch (error) {
+        console.error('Error al eliminar el servicio:', error);
+        mostrarToast('No se pudo eliminar el servicio.', 'error');
+    }
+}
+
+function mostrarModalEditarServicio(servicio) {
+    if (!perfilProfesionalPanelId || String(servicio.profesional_id) !== String(perfilProfesionalPanelId)) {
+        mostrarToast('No tienes permiso para editar este servicio.', 'error');
+        return;
+    }
+
+    const modal = document.createElement('div');
+    modal.className = 'modal-overlay';
+    modal.innerHTML = `
+        <div class="modal-content modal-small" role="dialog" aria-modal="true" aria-labelledby="tituloEditarServicio">
+            <button class="modal-close" type="button" aria-label="Cerrar">&times;</button>
+            <h2 id="tituloEditarServicio">Editar Servicio</h2>
+            <form id="formEditarServicio">
+                <div class="form-group">
+                    <label for="editServTitulo">Título *</label>
+                    <input type="text" id="editServTitulo" required maxlength="150">
+                </div>
+                <div class="form-group">
+                    <label for="editServDesc">Descripción</label>
+                    <textarea id="editServDesc" rows="4" maxlength="2000"></textarea>
+                </div>
+                <div class="form-row">
+                    <div class="form-group">
+                        <label for="editServPrecio">Precio (COP)</label>
+                        <input type="number" id="editServPrecio" min="0" step="any">
+                    </div>
+                    <div class="form-group">
+                        <label for="editServDisp">Disponibilidad</label>
+                        <select id="editServDisp">
+                            <option value="true">Disponible</option>
+                            <option value="false">No disponible</option>
+                        </select>
+                    </div>
+                </div>
+                <button type="submit" class="btn-primary btn-large">Guardar cambios</button>
+            </form>
+        </div>
+    `;
+    const tituloInput = modal.querySelector('#editServTitulo');
+    const descripcionInput = modal.querySelector('#editServDesc');
+    const precioInput = modal.querySelector('#editServPrecio');
+    const disponibilidadInput = modal.querySelector('#editServDisp');
+    tituloInput.value = servicio.titulo || '';
+    descripcionInput.value = servicio.descripcion || '';
+    precioInput.value = String(servicio.precio ?? 0);
+    disponibilidadInput.value = String(servicio.disponibilidad !== false);
+
+    const scrollAnterior = document.body.style.overflow;
+    const onEsc = event => {
+        if (event.key === 'Escape') cerrar();
+    };
+    const cerrar = () => {
+        document.removeEventListener('keydown', onEsc);
+        modal.remove();
+        document.body.style.overflow = scrollAnterior;
+    };
+    document.body.appendChild(modal);
+    document.body.style.overflow = 'hidden';
+    modal.querySelector('.modal-close').addEventListener('click', cerrar);
+    modal.addEventListener('click', event => {
+        if (event.target === modal) cerrar();
+    });
+    document.addEventListener('keydown', onEsc);
+
+    modal.querySelector('#formEditarServicio').addEventListener('submit', async event => {
+        event.preventDefault();
+        const submitBtn = modal.querySelector('button[type="submit"]');
+        const precio = Number(precioInput.value);
+        const titulo = tituloInput.value.trim();
+        if (!titulo || !Number.isFinite(precio) || precio < 0) {
+            mostrarToast('Revisa el título y el precio del servicio.', 'error');
+            return;
+        }
+
+        submitBtn.disabled = true;
+        submitBtn.textContent = 'Guardando...';
+        try {
+            const { data: authData, error: authError } = await supabaseClient.auth.getUser();
+            if (authError) throw authError;
+            if (!authData.user || authData.user.email !== usuarioPanelActual?.email) {
+                mostrarToast('Tu sesión expiró. Inicia sesión nuevamente.', 'error');
+                return;
+            }
+
+            const datos = {
+                titulo,
+                descripcion: descripcionInput.value.trim() || null,
+                precio,
+                disponibilidad: disponibilidadInput.value === 'true'
+            };
+            const { error } = await supabaseClient
+                .from('servicios')
+                .update(datos)
+                .eq('id', servicio.id)
+                .eq('profesional_id', perfilProfesionalPanelId);
+            if (error) throw error;
+
+            mostrarToast('Servicio actualizado correctamente.', 'success');
+            cerrar();
+            await cargarMisServicios();
+        } catch (error) {
+            console.error('Error al actualizar el servicio:', error);
+            mostrarToast('No se pudo actualizar el servicio.', 'error');
+        } finally {
+            if (submitBtn.isConnected) {
+                submitBtn.disabled = false;
+                submitBtn.textContent = 'Guardar cambios';
+            }
+        }
+    });
+}
+
+async function cargarMisCalificaciones() {
+    const lista = document.getElementById('misCalificacionesList');
+    if (!lista) return;
+    lista.replaceChildren();
+
+    if (!perfilProfesionalPanelId) {
+        const vacio = document.createElement('p');
+        vacio.className = 'panel-empty';
+        vacio.textContent = 'Las calificaciones aparecerán aquí cuando tengas un perfil profesional.';
+        lista.appendChild(vacio);
+        return;
+    }
+
+    const { data: calificaciones, error } = await supabaseClient
+        .from('calificaciones')
+        .select('calificacion, comentario, fecha, servicios(titulo)')
+        .eq('profesional_id', perfilProfesionalPanelId)
+        .order('fecha', { ascending: false });
+    if (error) {
+        console.error('Error al cargar las calificaciones del usuario:', error);
+        mostrarToast('No se pudieron cargar tus calificaciones.', 'error');
+        return;
+    }
+    if (!calificaciones?.length) {
+        const vacio = document.createElement('p');
+        vacio.className = 'panel-empty';
+        vacio.textContent = 'Todavía no has recibido calificaciones.';
+        lista.appendChild(vacio);
+        return;
+    }
+
+    calificaciones.forEach(calificacion => {
+        const item = document.createElement('article');
+        item.className = 'calificacion-item';
+        const cabecera = document.createElement('div');
+        cabecera.className = 'calificacion-item-header';
+        const estrellas = document.createElement('div');
+        estrellas.className = 'calificacion-estrellas';
+        estrellas.innerHTML = generarEstrellasHTML(calificacion.calificacion);
+        const fecha = document.createElement('span');
+        fecha.className = 'calificacion-fecha';
+        const fechaParseada = calificacion.fecha ? new Date(calificacion.fecha) : null;
+        fecha.textContent = fechaParseada && !Number.isNaN(fechaParseada.getTime())
+            ? fechaParseada.toLocaleDateString('es-CO')
+            : '';
+        cabecera.append(estrellas, fecha);
+        const servicio = document.createElement('p');
+        servicio.className = 'mis-servicio-meta';
+        servicio.textContent = calificacion.servicios?.titulo || 'Servicio calificado';
+        item.append(cabecera, servicio);
+        if (calificacion.comentario) {
+            const comentario = document.createElement('p');
+            comentario.className = 'calificacion-comentario';
+            comentario.textContent = `“${calificacion.comentario}”`;
+            item.appendChild(comentario);
+        }
+        lista.appendChild(item);
+    });
+}
+
+// ============================================
+// PÁGINA DE CALIFICACIÓN
+// ============================================
+async function mostrarPaginaCalificacion(perfilId, modalPerfil = null) {
+    let contratante;
+    let profesional;
+    let servicios;
+
+    try {
+        const { data: authData, error: authError } = await supabaseClient.auth.getUser();
+        if (authError) throw authError;
+
+        const user = authData.user;
+        if (!user) {
+            mostrarToast('Debes iniciar sesión para calificar.', 'error');
+            mostrarModalAuth('login');
+            return;
+        }
+
+        const { data: contratanteData, error: contratanteError } = await supabaseClient
+            .from('usuarios')
+            .select('id')
+            .eq('email', user.email)
+            .maybeSingle();
+        if (contratanteError) throw contratanteError;
+        if (!contratanteData) {
+            mostrarToast('No se encontró tu perfil de usuario.', 'error');
+            return;
+        }
+        contratante = contratanteData;
+
+        const { data: profesionalData, error: profesionalError } = await supabaseClient
+            .from('perfiles_profesionales')
+            .select('*, usuarios(nombre, ciudad)')
+            .eq('id', perfilId)
+            .maybeSingle();
+        if (profesionalError) throw profesionalError;
+        if (!profesionalData) {
+            mostrarToast('No se encontró el profesional.', 'error');
+            return;
+        }
+        profesional = profesionalData;
+
+        const { data: serviciosData, error: serviciosError } = await supabaseClient
+            .from('servicios')
+            .select('id, titulo')
+            .eq('profesional_id', perfilId);
+        if (serviciosError) throw serviciosError;
+        if (!serviciosData?.length) {
+            mostrarToast('Este profesional no tiene servicios publicados.', 'info');
+            return;
+        }
+        servicios = serviciosData;
+    } catch (error) {
+        console.error('Error al preparar la página de calificación:', error);
+        mostrarToast('No se pudo cargar el formulario de calificación. Intenta de nuevo.', 'error');
+        return;
+    }
+
+    const calificacionPage = document.getElementById('calificacionPage');
+    const profInfo = document.getElementById('calProfesionalInfo');
+    const selectServicios = document.getElementById('calServicioPage');
+    const valorInput = document.getElementById('calValorPage');
+    const comentarioInput = document.getElementById('calComentarioPage');
+    const textoLabel = document.getElementById('calificacionTextoPage');
+    const form = document.getElementById('calificacionFormPage');
+    const volverButton = document.getElementById('btnVolverCalificacion');
+
+    if (!calificacionPage || !profInfo || !selectServicios || !valorInput
+        || !comentarioInput || !textoLabel || !form || !volverButton) {
+        console.error('No se encontró el formulario completo de calificación.');
+        mostrarToast('No se pudo abrir el formulario de calificación. Recarga la página.', 'error');
+        return;
+    }
+
+    const vistasPrincipales = [
+        'inicio',
+        'resultadosBusqueda',
+        'categorias',
+        'profesionales',
+        'estadisticas',
+        'como-funciona'
+    ].map(id => document.getElementById(id)).filter(Boolean);
+    const estadoVistas = estadoVistasCalificacionInicial || vistasPrincipales.map(vista => ({
+        vista,
+        hidden: vista.hidden
+    }));
+    estadoVistasCalificacionInicial = null;
+    const footer = document.querySelector('.footer');
+    const footerDisplay = displayFooterCalificacionInicial || footer?.style.display;
+    displayFooterCalificacionInicial = '';
+
+    if (modalPerfil) modalPerfil.remove();
+
+    const nombreProfesional = profesional.usuarios?.nombre || 'Profesional';
+    const iniciales = nombreProfesional.split(' ').map(nombre => nombre[0]).join('').substring(0, 2).toUpperCase();
+    const avatar = document.createElement('div');
+    avatar.className = 'profesional-avatar';
+    avatar.dataset.avatarPalette = String(obtenerPaletaAvatar(perfilId));
+    avatar.textContent = iniciales;
+    const detalles = document.createElement('div');
+    detalles.className = 'profesional-detalles';
+    const nombre = document.createElement('h4');
+    nombre.textContent = nombreProfesional;
+    const descripcion = document.createElement('p');
+    descripcion.textContent = `${profesional.profesion || 'Profesional'} · ${profesional.usuarios?.ciudad || 'No especificada'}`;
+    detalles.append(nombre, descripcion);
+    profInfo.replaceChildren(avatar, detalles);
+
+    selectServicios.replaceChildren(new Option('Selecciona un servicio', ''));
+    servicios.forEach(servicio => {
+        selectServicios.add(new Option(servicio.titulo || 'Servicio sin título', servicio.id));
+    });
+
+    valorInput.value = '0';
+    comentarioInput.value = '';
+    textoLabel.textContent = 'Haz clic en las estrellas para calificar';
+    const textosCalificacion = ['', 'Muy malo', 'Malo', 'Regular', 'Bueno', 'Excelente'];
+    const stars = document.querySelectorAll('.cal-star-page');
+    let borrador = null;
+    try {
+        const borradorGuardado = JSON.parse(sessionStorage.getItem(BORRADOR_CALIFICACION_STORAGE_KEY) || 'null');
+        if (borradorGuardado?.perfilId === String(perfilId)) {
+            borrador = borradorGuardado;
+        }
+    } catch (error) {
+        console.error('No se pudo recuperar el borrador de calificación:', error);
+        sessionStorage.removeItem(BORRADOR_CALIFICACION_STORAGE_KEY);
+    }
+
+    if (borrador) {
+        if (servicios.some(servicio => String(servicio.id) === borrador.servicioId)) {
+            selectServicios.value = borrador.servicioId;
+        }
+        comentarioInput.value = typeof borrador.comentario === 'string' ? borrador.comentario : '';
+    }
+
+    const actualizarEstrellas = valor => {
+        valorInput.value = String(valor);
+        stars.forEach(item => {
+            item.classList.toggle('filled', Number.parseInt(item.dataset.value, 10) <= valor);
+        });
+        textoLabel.textContent = textosCalificacion[valor] || 'Haz clic en las estrellas para calificar';
+    };
+
+    if (Number.isInteger(borrador?.calificacion) && borrador.calificacion >= 1 && borrador.calificacion <= 5) {
+        actualizarEstrellas(borrador.calificacion);
+    }
+
+    const guardarBorradorCalificacion = () => {
+        sessionStorage.setItem(BORRADOR_CALIFICACION_STORAGE_KEY, JSON.stringify({
+            perfilId: String(perfilId),
+            servicioId: selectServicios.value,
+            calificacion: Number.parseInt(valorInput.value, 10) || 0,
+            comentario: comentarioInput.value
+        }));
+    };
+    form.oninput = guardarBorradorCalificacion;
+    form.onchange = guardarBorradorCalificacion;
+
+    stars.forEach(star => {
+        star.onclick = () => {
+            const valor = Number.parseInt(star.dataset.value, 10);
+            actualizarEstrellas(valor);
+            guardarBorradorCalificacion();
+        };
+    });
+
+    const restaurarVistas = () => {
+        calificacionPage.hidden = true;
+        estadoVistas.forEach(({ vista, hidden }) => {
+            vista.hidden = hidden;
+        });
+        if (footer) footer.style.display = footerDisplay;
+    };
+    restaurarVistaCalificacion = restaurarVistas;
+    const recargarPerfilYProfesionales = () => {
+        limpiarEstadoCalificacion();
+        restaurarVistaCalificacion = null;
+        guardarVistaActiva({ tipo: 'inicio' });
+        restaurarVistas();
+        setTimeout(async () => {
+            await cargarProfesionales(3);
+            await mostrarPerfilProfesional(perfilId);
+        }, 1200);
+    };
+
+    vistasPrincipales.forEach(vista => {
+        vista.hidden = true;
+    });
+    guardarVistaActiva({ tipo: 'calificacion', perfilId: String(perfilId) });
+    if (footer) footer.style.display = 'none';
+    calificacionPage.hidden = false;
+
+    volverButton.onclick = () => {
+        limpiarEstadoCalificacion();
+        guardarVistaActiva({ tipo: 'inicio' });
+        restaurarVistaCalificacion = null;
+        restaurarVistas();
+        mostrarPerfilProfesional(perfilId);
+    };
+
+    form.onsubmit = async event => {
+        event.preventDefault();
+        const servicioId = Number.parseInt(selectServicios.value, 10);
+        const calificacion = Number.parseInt(valorInput.value, 10);
+        const comentario = comentarioInput.value.trim();
+
+        if (!servicioId) {
+            mostrarToast('Selecciona un servicio.', 'error');
+            selectServicios.focus();
+            return;
+        }
+        if (!Number.isInteger(calificacion) || calificacion < 1 || calificacion > 5) {
+            mostrarToast('Selecciona una calificación.', 'error');
+            stars[0]?.focus();
+            return;
+        }
+
+        const submitButton = form.querySelector('button[type="submit"]');
+        const submitText = submitButton.textContent;
+        submitButton.disabled = true;
+        submitButton.textContent = 'Enviando...';
+        let calificacionGuardada = false;
+
+        try {
+            const { error: insertError } = await supabaseClient.from('calificaciones').insert([{
+                servicio_id: servicioId,
+                contratante_id: contratante.id,
+                profesional_id: perfilId,
+                calificacion,
+                comentario: comentario || null
+            }]);
+
+            if (insertError) {
+                if (insertError.code === '23505') {
+                    mostrarToast('Ya calificaste este servicio anteriormente.', 'error');
+                } else {
+                    console.error('Error al guardar la calificación:', insertError);
+                    mostrarToast('No se pudo enviar la calificación.', 'error');
+                }
+                return;
+            }
+            calificacionGuardada = true;
+
+            let mensajeFinal = '¡Calificación enviada con éxito! Gracias por tu opinión.';
+            let promedioActualizado = true;
+            const { data: calificaciones, error: consultaError } = await supabaseClient
+                .from('calificaciones')
+                .select('calificacion')
+                .eq('profesional_id', perfilId);
+
+            if (consultaError) {
+                console.error('Error al actualizar el promedio de calificaciones:', consultaError);
+                mensajeFinal = 'Tu calificación se guardó, pero no se pudo actualizar el promedio.';
+                promedioActualizado = false;
+            } else if (calificaciones?.length) {
+                const nuevoPromedio = calificaciones.reduce((suma, item) => suma + Number(item.calificacion), 0)
+                    / calificaciones.length;
+                const { error: promedioError } = await supabaseClient
+                    .from('perfiles_profesionales')
+                    .update({ reputacion_promedio: nuevoPromedio })
+                    .eq('id', perfilId);
+                if (promedioError) {
+                    console.error('Error al guardar el promedio de reputación:', promedioError);
+                    mensajeFinal = 'Tu calificación se guardó, pero no se pudo actualizar el promedio.';
+                    promedioActualizado = false;
+                }
+            } else {
+                console.error('No se encontraron calificaciones para calcular el promedio del profesional.');
+                mensajeFinal = 'Tu calificación se guardó, pero no se pudo actualizar el promedio.';
+                promedioActualizado = false;
+            }
+
+            mostrarToast(mensajeFinal, promedioActualizado ? 'success' : 'info');
+            recargarPerfilYProfesionales();
+        } catch (error) {
+            console.error('Error inesperado al enviar la calificación:', error);
+            if (calificacionGuardada) {
+                mostrarToast('Tu calificación se guardó, pero no se pudo actualizar el promedio.', 'info');
+                recargarPerfilYProfesionales();
+            } else {
+                mostrarToast('Ocurrió un error al enviar tu calificación. Intenta de nuevo.', 'error');
+            }
+        } finally {
+            if (submitButton.isConnected) {
+                submitButton.disabled = false;
+                submitButton.textContent = submitText;
+            }
+        }
+    };
+
+    calificacionPage.scrollIntoView({ behavior: 'smooth', block: 'start' });
+}
+
+// ============================================
 // MODAL DE PERFIL PROFESIONAL
 // ============================================
 async function mostrarPerfilProfesional(perfilId) {
@@ -474,7 +1457,8 @@ async function mostrarPerfilProfesional(perfilId) {
             usuarios(nombre, email, telefono, ciudad),
             planes_suscripcion(nombre),
             servicios(*),
-            insignias(*)
+            insignias(*),
+            calificaciones(calificacion, comentario, fecha)
         `)
         .eq('id', perfilId)
         .single();
@@ -486,10 +1470,23 @@ async function mostrarPerfilProfesional(perfilId) {
 
     const nombre = perfil.usuarios?.nombre || 'Profesional';
     const iniciales = nombre.split(' ').map(n => n[0]).join('').substring(0, 2).toUpperCase();
+    const paletaAvatar = obtenerPaletaAvatar(perfil.id);
     
-    const estrellas = Math.round(perfil.reputacion_promedio || 0);
-    const estrellasHTML = '<i class="fas fa-star"></i>'.repeat(estrellas) + 
-                          '<i class="far fa-star"></i>'.repeat(5 - estrellas);
+    const estrellasHTML = generarEstrellasHTML(perfil.reputacion_promedio);
+    const escaparHTML = valor => String(valor).replace(/[&<>"']/g, caracter => ({
+        '&': '&amp;',
+        '<': '&lt;',
+        '>': '&gt;',
+        '"': '&quot;',
+        "'": '&#39;'
+    })[caracter]);
+    const fechaCalificacion = fecha => {
+        const timestamp = Date.parse(fecha || '');
+        return Number.isNaN(timestamp) ? 0 : timestamp;
+    };
+    const calificacionesRecientes = Array.isArray(perfil.calificaciones)
+        ? [...perfil.calificaciones].sort((a, b) => fechaCalificacion(b.fecha) - fechaCalificacion(a.fecha))
+        : [];
 
     const modal = document.createElement('div');
     modal.className = 'modal-overlay';
@@ -497,7 +1494,7 @@ async function mostrarPerfilProfesional(perfilId) {
         <div class="modal-content">
             <button class="modal-close">&times;</button>
             <div class="modal-header">
-                <div class="professional-avatar-large">${iniciales}</div>
+                <div class="professional-avatar-large" data-avatar-palette="${paletaAvatar}">${iniciales}</div>
                 <div class="modal-title">
                     <h2>${nombre}</h2>
                     <div class="modal-stats">
@@ -547,6 +1544,32 @@ async function mostrarPerfilProfesional(perfilId) {
                     </div>
                 ` : ''}
                 
+                ${calificacionesRecientes.length > 0 ? `
+                    <div class="info-section">
+                        <h3><i class="fas fa-comments"></i> Opiniones recientes (${calificacionesRecientes.length})</h3>
+                        <div class="calificaciones-list">
+                            ${calificacionesRecientes.slice(0, 5).map(cal => {
+                                const valor = Math.min(5, Math.max(0, Number.parseInt(cal.calificacion, 10) || 0));
+                                const fecha = cal.fecha ? new Date(cal.fecha) : null;
+                                const fechaTexto = fecha && !Number.isNaN(fecha.getTime())
+                                    ? fecha.toLocaleDateString('es-CO')
+                                    : '';
+                                return `
+                                    <div class="calificacion-item">
+                                        <div class="calificacion-item-header">
+                                            <div class="calificacion-estrellas">
+                                                ${'<i class="fas fa-star"></i>'.repeat(valor)}${'<i class="far fa-star"></i>'.repeat(5 - valor)}
+                                            </div>
+                                            <span class="calificacion-fecha">${fechaTexto}</span>
+                                        </div>
+                                        ${cal.comentario ? `<p class="calificacion-comentario">"${escaparHTML(cal.comentario)}"</p>` : ''}
+                                    </div>
+                                `;
+                            }).join('')}
+                        </div>
+                    </div>
+                ` : ''}
+
                 ${perfil.servicios && perfil.servicios.length > 0 ? `
                     <div class="info-section">
                         <h3><i class="fas fa-tools"></i> Servicios ofrecidos</h3>
@@ -564,12 +1587,24 @@ async function mostrarPerfilProfesional(perfilId) {
             </div>
             
             <div class="modal-footer">
+                <button class="btn-secondary btn-large" id="btnCalificar" type="button">
+                    <i class="fas fa-star" aria-hidden="true"></i> Calificar servicio
+                </button>
                 <button class="btn-primary btn-large">Contactar profesional</button>
             </div>
         </div>
     `;
 
     document.body.appendChild(modal);
+
+    // Conectar botón de calificar
+    const btnCalificar = modal.querySelector('#btnCalificar');
+    if (btnCalificar) {
+        btnCalificar.addEventListener('click', () => {
+            modal.remove();
+            mostrarPaginaCalificacion(perfilId);
+        });
+    }
 
     // Cerrar modal
     modal.querySelector('.modal-close').addEventListener('click', () => {
@@ -584,201 +1619,282 @@ async function mostrarPerfilProfesional(perfilId) {
 }
 
 // ============================================
-// MODAL DE LOGIN
+// MODAL DE AUTENTICACIÓN UNIFICADO
 // ============================================
-function mostrarModalLogin() {
+function mostrarModalAuth(tabInicial = 'login') {
+    document.querySelectorAll('.modal-overlay').forEach(modalExistente => modalExistente.remove());
+
+    const tabActivoInicial = tabInicial === 'register' ? 'register' : 'login';
     const modal = document.createElement('div');
     modal.className = 'modal-overlay';
     modal.innerHTML = `
-        <div class="modal-content modal-small">
-        <button class="modal-close" type="button" aria-label="Cerrar">&times;</button>
-            <h2>Iniciar Sesión</h2>
-            <form id="loginForm">
+        <div class="modal-content modal-auth" role="dialog" aria-modal="true" aria-labelledby="authTitle">
+            <button class="modal-close" type="button" aria-label="Cerrar">&times;</button>
+            <div class="modal-auth-header">
+                <div class="modal-auth-logo"><i class="fas fa-bolt" aria-hidden="true"></i></div>
+                <h2 class="modal-auth-title" id="authTitle">${tabActivoInicial === 'login' ? 'Bienvenido de nuevo' : 'Únete a Servitech'}</h2>
+                <p class="modal-auth-subtitle" id="authSubtitle">${tabActivoInicial === 'login'
+                    ? 'Entra con tu correo para seguir donde lo dejaste.'
+                    : 'Crea tu cuenta y conecta con profesionales verificados.'}</p>
+            </div>
+
+            <div class="auth-tabs" role="tablist" aria-label="Autenticación">
+                <button type="button" class="auth-tab ${tabActivoInicial === 'login' ? 'active' : ''}"
+                    data-tab="login" role="tab" aria-selected="${tabActivoInicial === 'login'}">Iniciar Sesión</button>
+                <button type="button" class="auth-tab ${tabActivoInicial === 'register' ? 'active' : ''}"
+                    data-tab="register" role="tab" aria-selected="${tabActivoInicial === 'register'}">Crear Cuenta</button>
+            </div>
+
+            <form id="authLoginForm" class="auth-form ${tabActivoInicial === 'login' ? '' : 'hidden'}">
                 <div class="form-group">
-                <label for="loginEmail">Email</label>
-                    <input type="email" id="loginEmail" required>
+                    <label for="authLoginEmail">Correo electrónico</label>
+                    <div class="input-with-icon">
+                        <i class="fas fa-envelope" aria-hidden="true"></i>
+                        <input type="email" id="authLoginEmail" required autocomplete="email" placeholder="tu@correo.com">
+                    </div>
                 </div>
                 <div class="form-group">
-                <label for="loginPassword">Contraseña</label>
-                    <input type="password" id="loginPassword" required>
+                    <label for="authLoginPassword">Contraseña</label>
+                    <div class="input-with-icon">
+                        <i class="fas fa-lock" aria-hidden="true"></i>
+                        <input type="password" id="authLoginPassword" required autocomplete="current-password" placeholder="••••••••">
+                    </div>
                 </div>
-                <button type="submit" class="btn-primary btn-large">Iniciar Sesión</button>
+                <div class="auth-extras">
+                    <label><input type="checkbox" id="authRecordarme"> Recordarme</label>
+                    <a href="#" id="authOlvidePassword">¿Olvidaste tu contraseña?</a>
+                </div>
+                <button type="submit" class="auth-submit">Entrar</button>
             </form>
-            <p class="modal-footer-text">
-                ¿No tienes cuenta? <a href="#" id="switchToRegister">Regístrate aquí</a>
-            </p>
+
+            <form id="authRegisterForm" class="auth-form ${tabActivoInicial === 'register' ? '' : 'hidden'}">
+                <div class="form-group">
+                    <label for="authRegNombre">Nombre completo</label>
+                    <div class="input-with-icon">
+                        <i class="fas fa-user" aria-hidden="true"></i>
+                        <input type="text" id="authRegNombre" required autocomplete="name" placeholder="Carlos Alberto Ríos">
+                    </div>
+                </div>
+                <div class="form-group">
+                    <label for="authRegEmail">Correo electrónico</label>
+                    <div class="input-with-icon">
+                        <i class="fas fa-envelope" aria-hidden="true"></i>
+                        <input type="email" id="authRegEmail" required autocomplete="email" placeholder="tu@correo.com">
+                    </div>
+                </div>
+                <div class="form-group">
+                    <label for="authRegTelefono">Teléfono / WhatsApp</label>
+                    <div class="input-with-icon">
+                        <i class="fas fa-phone" aria-hidden="true"></i>
+                        <input type="tel" id="authRegTelefono" autocomplete="tel" placeholder="+57 300 000 0000">
+                    </div>
+                </div>
+                <div class="form-group">
+                    <label for="authRegCiudad">Ciudad</label>
+                    <div class="input-with-icon">
+                        <i class="fas fa-map-marker-alt" aria-hidden="true"></i>
+                        <input type="text" id="authRegCiudad" required autocomplete="address-level2" placeholder="Magangué">
+                    </div>
+                </div>
+                <div class="form-group">
+                    <label for="authRegPassword">Contraseña</label>
+                    <div class="input-with-icon">
+                        <i class="fas fa-lock" aria-hidden="true"></i>
+                        <input type="password" id="authRegPassword" required minlength="6" autocomplete="new-password"
+                            placeholder="Mínimo 6 caracteres">
+                    </div>
+                </div>
+                <div class="form-group">
+                    <label>Tipo de cuenta</label>
+                    <div class="rol-selector">
+                        <div class="rol-option">
+                            <input type="radio" name="authRol" id="authRolContratante" value="contratante" checked>
+                            <label for="authRolContratante"><i class="fas fa-search" aria-hidden="true"></i>Contratante</label>
+                        </div>
+                        <div class="rol-option">
+                            <input type="radio" name="authRol" id="authRolProfesional" value="profesional">
+                            <label for="authRolProfesional"><i class="fas fa-tools" aria-hidden="true"></i>Profesional</label>
+                        </div>
+                    </div>
+                </div>
+                <button type="submit" class="auth-submit">Crear mi cuenta</button>
+            </form>
         </div>
     `;
-
     document.body.appendChild(modal);
 
-    modal.querySelector('.modal-close').addEventListener('click', () => modal.remove());
-    modal.addEventListener('click', (e) => { if (e.target === modal) modal.remove(); });
+    const formLogin = modal.querySelector('#authLoginForm');
+    const formRegister = modal.querySelector('#authRegisterForm');
+    const titulo = modal.querySelector('#authTitle');
+    const subtitulo = modal.querySelector('#authSubtitle');
+    const tabs = [...modal.querySelectorAll('.auth-tab')];
+    const onEsc = event => {
+        if (event.key === 'Escape') cerrar();
+    };
+    const cerrar = () => {
+        document.removeEventListener('keydown', onEsc);
+        modal.remove();
+    };
+
+    modal.querySelector('.modal-close').addEventListener('click', cerrar);
+    modal.addEventListener('click', event => {
+        if (event.target === modal) cerrar();
+    });
+    document.addEventListener('keydown', onEsc);
+
+    tabs.forEach(tab => {
+        tab.addEventListener('click', () => {
+            const mostrarLogin = tab.dataset.tab === 'login';
+            tabs.forEach(item => {
+                const activo = item === tab;
+                item.classList.toggle('active', activo);
+                item.setAttribute('aria-selected', String(activo));
+            });
+            formLogin.classList.toggle('hidden', !mostrarLogin);
+            formRegister.classList.toggle('hidden', mostrarLogin);
+            titulo.textContent = mostrarLogin ? 'Bienvenido de nuevo' : 'Únete a Servitech';
+            subtitulo.textContent = mostrarLogin
+                ? 'Entra con tu correo para seguir donde lo dejaste.'
+                : 'Crea tu cuenta y conecta con profesionales verificados.';
+            modal.querySelectorAll('.input-error').forEach(limpiarErrorCampo);
+        });
+    });
 
     modal.querySelectorAll('input').forEach(input => {
-        input.addEventListener('input', () => limpiarErrorCampo(input));
-    });
-
-    modal.querySelector('#loginForm').addEventListener('submit', async (e) => {
-        e.preventDefault();
-        const email = document.getElementById('loginEmail').value;
-        const password = document.getElementById('loginPassword').value;
-
-        const { data, error } = await supabaseClient.auth.signInWithPassword({
-            email,
-            password
-        });
-
-        if (error) {
-            const translatedError = traducirErrorAuth(error.message);
-            const errorInput = error.message === 'Email not confirmed'
-                ? modal.querySelector('#loginEmail')
-                : modal.querySelector('#loginPassword');
-            marcarErrorCampo(errorInput, translatedError);
-            mostrarToast('No se pudo iniciar sesión. Revisa tus datos.', 'error');
-        } else {
-            mostrarToast('¡Bienvenido! Sesión iniciada correctamente.', 'success');
-            modal.remove();
-            if (data.user?.email) {
-                await actualizarHeaderParaUsuarioLogueado(data.user.email);
-            }
-        }
-    });
-
-    modal.querySelector('#switchToRegister').addEventListener('click', (e) => {
-        e.preventDefault();
-        modal.remove();
-        mostrarModalRegistro();
-    });
-}
-
-// ============================================
-// MODAL DE REGISTRO
-// ============================================
-function mostrarModalRegistro(rolPredefinido = null) {
-    const modal = document.createElement('div');
-    modal.className = 'modal-overlay';
-    modal.innerHTML = `
-        <div class="modal-content modal-small">
-            <button class="modal-close" type="button" aria-label="Cerrar">&times;</button>
-            <h2>Crear Cuenta</h2>
-            <form id="registerForm">
-                <div class="form-group">
-                    <label for="regNombre">Nombre completo</label>
-                    <input type="text" id="regNombre" required>
-                </div>
-                <div class="form-group">
-                    <label for="regEmail">Email</label>
-                    <input type="email" id="regEmail" required>
-                </div>
-                <div class="form-group">
-                    <label for="regTelefono">Teléfono</label>
-                    <input type="tel" id="regTelefono" required>
-                </div>
-                <div class="form-group">
-                    <label for="regCiudad">Ciudad</label>
-                    <input type="text" id="regCiudad" required>
-                </div>
-                <div class="form-group">
-                    <label for="regPassword">Contraseña</label>
-                    <input type="password" id="regPassword" required minlength="6">
-                </div>
-                <div class="form-group">
-                    <label for="regRol">Tipo de cuenta</label>
-                    <select id="regRol" required>
-                        <option value="contratante">Soy Contratante (busco servicios)</option>
-                        <option value="profesional">Soy Profesional (ofrezco servicios)</option>
-                        <option value="ambos">Ambos</option>
-                    </select>
-                </div>
-                <button type="submit" class="btn-primary btn-large">Registrarse</button>
-            </form>
-            <p class="modal-footer-text">
-                ¿Ya tienes cuenta? <a href="#" id="switchToLogin">Inicia sesión aquí</a>
-            </p>
-        </div>
-    `;
-
-    document.body.appendChild(modal);
-
-    // Si hay un rol predefinido, seleccionarlo
-    if (rolPredefinido) {
-        modal.querySelector('#regRol').value = rolPredefinido;
-    }
-
-    modal.querySelector('.modal-close').addEventListener('click', () => modal.remove());
-    modal.addEventListener('click', (e) => { if (e.target === modal) modal.remove(); });
-
-    modal.querySelectorAll('input, select').forEach(input => {
         input.addEventListener('input', () => limpiarErrorCampo(input));
         input.addEventListener('change', () => limpiarErrorCampo(input));
     });
 
-    modal.querySelector('#registerForm').addEventListener('submit', async (e) => {
-        e.preventDefault();
-        
-        const nombre = document.getElementById('regNombre').value;
-        const email = document.getElementById('regEmail').value;
-        const telefono = document.getElementById('regTelefono').value;
-        const ciudad = document.getElementById('regCiudad').value;
-        const password = document.getElementById('regPassword').value;
-        const rol = document.getElementById('regRol').value;
+    formLogin.addEventListener('submit', async event => {
+        event.preventDefault();
+        const submitBtn = formLogin.querySelector('.auth-submit');
+        submitBtn.disabled = true;
+        submitBtn.textContent = 'Entrando...';
+        try {
+            const email = modal.querySelector('#authLoginEmail').value.trim();
+            const password = modal.querySelector('#authLoginPassword').value;
+            const { data, error } = await supabaseClient.auth.signInWithPassword({ email, password });
+            if (error) {
+                const campo = error.message === 'Email not confirmed'
+                    ? modal.querySelector('#authLoginEmail')
+                    : modal.querySelector('#authLoginPassword');
+                marcarErrorCampo(campo, traducirErrorAuth(error.message));
+                mostrarToast('No se pudo iniciar sesión.', 'error');
+                return;
+            }
 
-        // Registrar usuario en Supabase Auth
-        const { data: authData, error: authError } = await supabaseClient.auth.signUp({
-            email,
-            password
-        });
-
-        if (authError) {
-            const translatedError = traducirErrorAuth(authError.message);
-            const errorInput = authError.message.startsWith('Password')
-                ? modal.querySelector('#regPassword')
-                : modal.querySelector('#regEmail');
-            marcarErrorCampo(errorInput, translatedError);
-            mostrarToast('No se pudo crear la cuenta. Revisa los datos e intenta de nuevo.', 'error');
-            return;
+            cerrar();
+            mostrarToast('¡Bienvenido! Sesión iniciada.', 'success');
+            if (data.user?.email) await actualizarHeaderParaUsuarioLogueado(data.user.email);
+        } catch (error) {
+            console.error('Error inesperado al iniciar sesión:', error);
+            mostrarToast('Ocurrió un error al iniciar sesión. Intenta de nuevo.', 'error');
+        } finally {
+            if (submitBtn.isConnected) {
+                submitBtn.disabled = false;
+                submitBtn.textContent = 'Entrar';
+            }
         }
+    });
 
-        // Insertar en tabla usuarios
-        const { error: dbError } = await supabaseClient
-            .from('usuarios')
-            .insert([{
+    formRegister.addEventListener('submit', async event => {
+        event.preventDefault();
+        const submitBtn = formRegister.querySelector('.auth-submit');
+        submitBtn.disabled = true;
+        submitBtn.textContent = 'Creando cuenta...';
+        try {
+            const nombre = modal.querySelector('#authRegNombre').value.trim();
+            const email = modal.querySelector('#authRegEmail').value.trim();
+            const telefono = modal.querySelector('#authRegTelefono').value.trim();
+            const ciudad = modal.querySelector('#authRegCiudad').value.trim();
+            const password = modal.querySelector('#authRegPassword').value;
+            const rol = modal.querySelector('input[name="authRol"]:checked')?.value;
+            const { data: authData, error: authError } = await supabaseClient.auth.signUp({ email, password });
+
+            if (authError) {
+                const campo = authError.message.startsWith('Password')
+                    ? modal.querySelector('#authRegPassword')
+                    : modal.querySelector('#authRegEmail');
+                marcarErrorCampo(campo, traducirErrorAuth(authError.message));
+                mostrarToast('No se pudo crear la cuenta.', 'error');
+                return;
+            }
+
+            const { error: dbError } = await supabaseClient.from('usuarios').insert([{
                 nombre,
                 email,
                 rol,
-                telefono,
+                telefono: telefono || null,
                 ciudad
             }]);
-
-        if (dbError) {
-            console.error('Error al guardar datos del usuario:', dbError);
-            mostrarToast('La cuenta se creó, pero no se pudieron guardar tus datos. Contacta al soporte.', 'error');
-            modal.remove();
-            if (authData.session?.user.email) {
-                await actualizarHeaderParaUsuarioLogueado(authData.session.user.email);
+            if (dbError) {
+                console.error('Error al guardar usuario:', dbError);
+                mostrarToast('La cuenta se creó, pero no se pudieron guardar tus datos.', 'error');
+                cerrar();
+                if (authData.session?.user.email) {
+                    await actualizarHeaderParaUsuarioLogueado(authData.session.user.email);
+                }
+                return;
             }
-        } else {
-            modal.remove();
+
+            cerrar();
             if (authData.session?.user.email) {
                 mostrarToast('¡Registro exitoso! Bienvenido a Servitech.', 'success');
                 await actualizarHeaderParaUsuarioLogueado(authData.session.user.email);
             } else {
-                mostrarToast('Cuenta creada. Revisa tu correo para confirmar tu dirección.', 'success');
+                mostrarToast('Cuenta creada. Revisa tu correo para confirmar.', 'success');
+            }
+        } catch (error) {
+            console.error('Error inesperado al crear la cuenta:', error);
+            mostrarToast('Ocurrió un error al crear la cuenta. Intenta de nuevo.', 'error');
+        } finally {
+            if (submitBtn.isConnected) {
+                submitBtn.disabled = false;
+                submitBtn.textContent = 'Crear mi cuenta';
             }
         }
     });
 
-    modal.querySelector('#switchToLogin').addEventListener('click', (e) => {
-        e.preventDefault();
-        modal.remove();
-        mostrarModalLogin();
+    modal.querySelector('#authOlvidePassword').addEventListener('click', async event => {
+        event.preventDefault();
+        const email = modal.querySelector('#authLoginEmail').value.trim();
+        if (!email) {
+            mostrarToast('Ingresa tu correo primero para recuperar la contraseña.', 'info');
+            modal.querySelector('#authLoginEmail').focus();
+            return;
+        }
+
+        try {
+            const { error } = await supabaseClient.auth.resetPasswordForEmail(email);
+            if (error) throw error;
+            mostrarToast('Revisa tu correo para restablecer la contraseña.', 'success');
+        } catch (error) {
+            console.error('Error al solicitar restablecimiento de contraseña:', error);
+            mostrarToast('No se pudo enviar el correo de recuperación.', 'error');
+        }
     });
+
+    const campoInicial = tabActivoInicial === 'login'
+        ? modal.querySelector('#authLoginEmail')
+        : modal.querySelector('#authRegNombre');
+    campoInicial.focus();
 }
 
 // ============================================
 // HEADER Y SESIÓN DEL USUARIO
 // ============================================
+function aplicarTema(tema) {
+    document.documentElement.dataset.theme = tema;
+
+    document.querySelectorAll('.theme-toggle').forEach(button => {
+        const activarModoOscuro = tema !== 'dark';
+        button.setAttribute('aria-label', activarModoOscuro ? 'Activar modo oscuro' : 'Activar modo claro');
+        button.setAttribute('title', activarModoOscuro ? 'Activar modo oscuro' : 'Activar modo claro');
+        button.setAttribute('aria-pressed', String(tema === 'dark'));
+        button.innerHTML = `<i class="fas fa-${activarModoOscuro ? 'moon' : 'sun'}" aria-hidden="true"></i>`;
+    });
+}
+
 async function actualizarHeaderParaUsuarioLogueado(email) {
     const navActions = document.querySelector('.nav-actions');
 
@@ -807,16 +1923,21 @@ async function actualizarHeaderParaUsuarioLogueado(email) {
     }
 
     const iniciales = nombreUsuario.split(' ').map(n => n[0]).join('').substring(0, 2).toUpperCase();
+    const paletaAvatarUsuario = obtenerPaletaAvatar(email);
 
     navActions.innerHTML = `
+        <button class="theme-toggle" type="button" aria-label="Activar modo oscuro"
+            title="Activar modo oscuro">
+            <i class="fas fa-moon" aria-hidden="true"></i>
+        </button>
         <div class="user-menu-container">
             <button class="user-menu-trigger" id="userMenuTrigger" type="button" aria-label="Abrir menú de usuario" aria-controls="userDropdown" aria-expanded="false">
-                <div class="user-avatar-small"></div>
+                <div class="user-avatar-small" data-avatar-palette="${paletaAvatarUsuario}"></div>
             </button>
             
             <div class="user-dropdown" id="userDropdown">
                 <div class="user-dropdown-header">
-                    <div class="user-avatar-large"></div>
+                    <div class="user-avatar-large" data-avatar-palette="${paletaAvatarUsuario}"></div>
                     <div class="user-info">
                         <div class="user-display-name"></div>
                         <div class="user-email"></div>
@@ -827,25 +1948,19 @@ async function actualizarHeaderParaUsuarioLogueado(email) {
                 
                 <ul class="user-dropdown-menu">
                     <li>
-                        <a href="#" class="dropdown-item">
-                            <i class="fas fa-user"></i>
-                            <span>Mi perfil</span>
+                        <a href="#" class="dropdown-item" id="menuMiPanel">
+                            <i class="fas fa-th-large"></i>
+                            <span>Mi Panel</span>
                         </a>
                     </li>
                     <li>
-                        <a href="#" class="dropdown-item">
-                            <i class="fas fa-tools"></i>
-                            <span>Mis servicios</span>
+                        <a href="#" class="dropdown-item" id="menuPublicarServicio">
+                            <i class="fas fa-plus-circle"></i>
+                            <span>Publicar servicio</span>
                         </a>
                     </li>
                     <li>
-                        <a href="#" class="dropdown-item">
-                            <i class="fas fa-star"></i>
-                            <span>Mis calificaciones</span>
-                        </a>
-                    </li>
-                    <li>
-                        <a href="#" class="dropdown-item">
+                        <a href="#" class="dropdown-item" id="menuConfiguracion">
                             <i class="fas fa-cog"></i>
                             <span>Configuración</span>
                         </a>
@@ -863,6 +1978,7 @@ async function actualizarHeaderParaUsuarioLogueado(email) {
             </div>
         </div>
     `;
+    aplicarTema(document.documentElement.dataset.theme || 'light');
 
     navActions.querySelectorAll('.user-avatar-small, .user-avatar-large').forEach(avatar => {
         avatar.textContent = iniciales;
@@ -907,6 +2023,78 @@ async function cerrarSesion() {
 document.addEventListener('DOMContentLoaded', () => {
     console.log(' Página cargada, iniciando...');
 
+    let vistaInicial = null;
+    try {
+        vistaInicial = JSON.parse(sessionStorage.getItem(VISTA_ACTIVA_STORAGE_KEY) || 'null');
+    } catch (error) {
+        console.error('No se pudo recuperar la vista guardada:', error);
+        sessionStorage.removeItem(VISTA_ACTIVA_STORAGE_KEY);
+        sessionStorage.removeItem(BORRADOR_CALIFICACION_STORAGE_KEY);
+    }
+
+    if (vistaInicial?.tipo === 'panel') {
+        cambiarVisibilidadPanel(true);
+        mostrarSeccionPanelSinCarga(vistaInicial.seccion);
+        guardarVistaActiva(vistaInicial);
+    } else if (vistaInicial?.tipo === 'calificacion' && typeof vistaInicial.perfilId === 'string') {
+        const vistas = ['inicio', 'resultadosBusqueda', 'categorias', 'profesionales', 'estadisticas', 'como-funciona']
+            .map(id => document.getElementById(id))
+            .filter(Boolean);
+        estadoVistasCalificacionInicial = vistas.map(vista => ({ vista, hidden: vista.hidden }));
+        const footer = document.querySelector('.footer');
+        displayFooterCalificacionInicial = footer?.style.display || '';
+        vistas.forEach(vista => { vista.hidden = true; });
+        if (footer) footer.style.display = 'none';
+        document.getElementById('calificacionPage').hidden = false;
+        guardarVistaActiva(vistaInicial);
+    }
+
+    const temaGuardado = localStorage.getItem('servitech-theme');
+    const temaPreferido = window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
+    aplicarTema(temaGuardado === 'dark' || temaGuardado === 'light' ? temaGuardado : temaPreferido);
+
+    document.addEventListener('click', event => {
+        if (!(event.target instanceof Element)) {
+            return;
+        }
+        const themeToggle = event.target.closest('.theme-toggle');
+        if (!themeToggle) {
+            return;
+        }
+
+        const nuevoTema = document.documentElement.dataset.theme === 'dark' ? 'light' : 'dark';
+        localStorage.setItem('servitech-theme', nuevoTema);
+        aplicarTema(nuevoTema);
+    });
+
+    document.querySelectorAll('.panel-nav-btn').forEach(boton => {
+        boton.addEventListener('click', () => {
+            mostrarSeccionPanel(boton.dataset.seccion);
+        });
+    });
+
+    document.getElementById('btnVolverPanel')?.addEventListener('click', () => {
+        if (cambiarVisibilidadPanel(false)) {
+            restaurarVistaInicio();
+            document.getElementById('inicio')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+        }
+    });
+
+    document.addEventListener('click', event => {
+        if (!(event.target instanceof Element)) return;
+        const menuItem = event.target.closest('#menuMiPanel, #menuPublicarServicio, #menuConfiguracion');
+        if (!menuItem) return;
+
+        event.preventDefault();
+        if (menuItem.id === 'menuPublicarServicio') {
+            abrirPanelUsuario('publicar');
+        } else if (menuItem.id === 'menuConfiguracion') {
+            abrirPanelUsuario('perfil');
+        } else {
+            abrirPanelUsuario();
+        }
+    });
+
     // ============================================
     // NAVEGACIÓN SUAVE Y SECCIÓN ACTIVA
     // ============================================
@@ -919,6 +2107,14 @@ document.addEventListener('DOMContentLoaded', () => {
             const target = document.querySelector(targetId);
 
             if (target) {
+                const panelVisible = !document.getElementById('panelUsuario')?.hidden;
+                const calificacionVisible = !document.getElementById('calificacionPage')?.hidden;
+                if (panelVisible || calificacionVisible) {
+                    restaurarVistaInicio();
+                    target.scrollIntoView({ behavior: 'smooth', block: 'start' });
+                    return;
+                }
+
                 // Actualizar clase activa inmediatamente al hacer clic
                 navLinks.forEach(link => link.classList.remove('active'));
                 this.classList.add('active');
@@ -960,34 +2156,74 @@ document.addEventListener('DOMContentLoaded', () => {
     cargarCategorias();
     cargarProfesionales(3);
 
-    document.getElementById('btnVerDirectorio')?.addEventListener('click', () => {
-        document.getElementById('categorias')?.scrollIntoView({ behavior: 'smooth' });
-        mostrarToast('Mostrando todas las categorías disponibles.', 'info');
+    document.getElementById('btnVerDirectorio')?.addEventListener('click', event => {
+        const button = event.currentTarget;
+        const grid = document.getElementById('categoriesGrid');
+        if (!grid) {
+            console.error('No se encontró el contenedor de categorías.');
+            mostrarToast('No se pudo actualizar el directorio de categorías.', 'error');
+            return;
+        }
+
+        const mostrarTodas = button.getAttribute('aria-expanded') !== 'true';
+        const tarjetas = [...grid.querySelectorAll('.category-card')];
+        tarjetas.forEach((tarjeta, index) => {
+            tarjeta.hidden = !mostrarTodas && index >= 6;
+        });
+        button.setAttribute('aria-expanded', String(mostrarTodas));
+        button.querySelector('span').textContent = mostrarTodas
+            ? 'Ver menos categorías'
+            : 'Ver todas las categorías';
+        button.querySelector('i').className = `fas ${mostrarTodas ? 'fa-arrow-up' : 'fa-arrow-right'}`;
+
+        if (!mostrarTodas) {
+            document.getElementById('categorias')?.scrollIntoView({
+                behavior: 'smooth',
+                block: 'start'
+            });
+        }
     });
 
     // Botones del header
-    document.querySelectorAll('.btn-secondary')[0]?.addEventListener('click', mostrarModalLogin);
-    document.querySelectorAll('.btn-primary')[0]?.addEventListener('click', mostrarModalRegistro);
+    document.querySelector('.nav-actions > .btn-secondary')
+        ?.addEventListener('click', () => mostrarModalAuth('login'));
+    document.querySelector('.nav-actions > .btn-primary')
+        ?.addEventListener('click', () => mostrarModalAuth('register'));
 
-    supabaseClient.auth.getSession().then(({ data, error }) => {
+    supabaseClient.auth.getSession().then(async ({ data, error }) => {
         if (error) {
             console.error('Error al comprobar la sesión:', error);
             return;
         }
 
         if (data.session?.user.email) {
-            actualizarHeaderParaUsuarioLogueado(data.session.user.email);
+            await actualizarHeaderParaUsuarioLogueado(data.session.user.email);
+            let vistaGuardada;
+            try {
+                vistaGuardada = JSON.parse(sessionStorage.getItem(VISTA_ACTIVA_STORAGE_KEY) || 'null');
+            } catch (storageError) {
+                console.error('No se pudo recuperar la vista abierta anteriormente:', storageError);
+                sessionStorage.removeItem(VISTA_ACTIVA_STORAGE_KEY);
+                sessionStorage.removeItem(BORRADOR_CALIFICACION_STORAGE_KEY);
+                return;
+            }
+
+            if (vistaGuardada?.tipo === 'panel') {
+                await abrirPanelUsuario(vistaGuardada.seccion, { desplazar: false });
+            } else if (vistaGuardada?.tipo === 'calificacion' && typeof vistaGuardada.perfilId === 'string') {
+                await mostrarPaginaCalificacion(vistaGuardada.perfilId);
+            } else if (vistaGuardada) {
+                sessionStorage.removeItem(VISTA_ACTIVA_STORAGE_KEY);
+            }
+        } else {
+            sessionStorage.removeItem(VISTA_ACTIVA_STORAGE_KEY);
+            sessionStorage.removeItem(BORRADOR_CALIFICACION_STORAGE_KEY);
         }
     });
 
-    // Botones del hero
-    document.querySelector('.btn-action-primary')?.addEventListener('click', () => {
-        document.getElementById('searchInput').focus();
-        document.getElementById('searchInput').scrollIntoView({ behavior: 'smooth', block: 'center' });
-    });
-
+    // Acción para profesionales
     document.querySelector('.btn-action-secondary')?.addEventListener('click', () => {
-        mostrarModalRegistro('profesional');
+        mostrarModalRegistroProfesional();
     });
 
     // Buscador
@@ -1006,9 +2242,27 @@ document.addEventListener('DOMContentLoaded', () => {
     });
 
     // Ver todos los profesionales
-    document.querySelector('.view-more .btn-outline')?.addEventListener('click', () => {
-        cargarProfesionales(10);
-        mostrarToast('Cargando más profesionales…', 'info');
+    document.getElementById('btnVerProfesionales')?.addEventListener('click', async event => {
+        const button = event.currentTarget;
+        const mostrandoTodos = button.getAttribute('aria-expanded') === 'true';
+        button.disabled = true;
+
+        try {
+            const cargaExitosa = await cargarProfesionales(mostrandoTodos ? 3 : 10);
+            if (!cargaExitosa) {
+                mostrarToast('No se pudo actualizar la lista de profesionales. Intenta de nuevo.', 'error');
+            } else if (mostrandoTodos) {
+                document.getElementById('profesionales')?.scrollIntoView({
+                    behavior: 'smooth',
+                    block: 'start'
+                });
+            }
+        } catch (error) {
+            console.error('Error al cambiar la cantidad de profesionales mostrados:', error);
+            mostrarToast('No se pudo actualizar la lista de profesionales. Intenta de nuevo.', 'error');
+        } finally {
+            button.disabled = false;
+        }
     });
 
     document.getElementById('volverExplorar')?.addEventListener('click', () => {
@@ -1166,3 +2420,350 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     }
 });
+
+// ============================================
+// REGISTRO / PUBLICACIÓN COMO PROFESIONAL
+// ============================================
+async function mostrarModalRegistroProfesional() {
+    const { data: authData, error: authError } = await supabaseClient.auth.getUser();
+    if (authError) {
+        console.error('Error al comprobar la sesión:', authError);
+        mostrarToast('No se pudo comprobar tu sesión. Intenta de nuevo.', 'error');
+        return;
+    }
+    const user = authData.user;
+
+    const { data: categorias, error: categoriasError } = await supabaseClient
+        .from('categorias')
+        .select('id, nombre')
+        .order('nombre');
+
+    if (categoriasError) {
+        console.error('Error al cargar categorías:', categoriasError);
+        mostrarToast('No se pudieron cargar las categorías. Intenta de nuevo.', 'error');
+        return;
+    }
+    if (!categorias?.length) {
+        mostrarToast('No hay categorías disponibles para publicar un servicio.', 'error');
+        return;
+    }
+
+    const escaparHTML = valor => String(valor).replace(/[&<>"']/g, caracter => ({
+        '&': '&amp;',
+        '<': '&lt;',
+        '>': '&gt;',
+        '"': '&quot;',
+        "'": '&#39;'
+    })[caracter]);
+    const ciudades = ['Magangué', 'Cartagena', 'Barranquilla', 'Bogotá', 'Medellín', 'Otra'];
+
+    const modal = document.createElement('div');
+    modal.className = 'modal-overlay';
+    modal.innerHTML = `
+        <div class="modal-content modal-wide" role="dialog" aria-modal="true" aria-labelledby="tituloProfesional">
+            <button class="modal-close" type="button" aria-label="Cerrar">&times;</button>
+            <h2 id="tituloProfesional">Únete como profesional</h2>
+            <p style="color:var(--color-text-light);margin-bottom:1.5rem;">
+                Completa tu perfil para empezar a recibir contratantes.
+            </p>
+
+            <form id="profesionalForm">
+                <div class="form-section">
+                    <h3 class="form-section-title">Datos personales</h3>
+                    <div class="form-row">
+                        <div class="form-group">
+                            <label for="profNombre">Nombre completo o del negocio *</label>
+                            <input type="text" id="profNombre" required placeholder="Ej: Carlos Alberto Ríos">
+                        </div>
+                        <div class="form-group">
+                            <label for="profProfesion">Profesión o servicio principal *</label>
+                            <input type="text" id="profProfesion" required placeholder="Ej: Electricista certificado">
+                        </div>
+                        <div class="form-group">
+                            <label for="profTelefono">Teléfono / WhatsApp</label>
+                            <input type="tel" id="profTelefono" placeholder="+57 300 000 0000">
+                        </div>
+                        <div class="form-group">
+                            <label for="profEmail">Correo electrónico *</label>
+                            <input type="email" id="profEmail" required placeholder="correo@ejemplo.com"
+                                ${user ? `value="${escaparHTML(user.email)}" readonly` : ''}>
+                        </div>
+                        ${!user ? `
+                        <div class="form-group">
+                            <label for="profPassword">Contraseña (para crear tu cuenta) *</label>
+                            <input type="password" id="profPassword" required minlength="6" placeholder="Mínimo 6 caracteres">
+                        </div>` : ''}
+                    </div>
+                </div>
+
+                <div class="form-section">
+                    <h3 class="form-section-title">Especialidad y ubicación</h3>
+                    <div class="form-row">
+                        <div class="form-group">
+                            <label for="profCategoria">Categoría del servicio *</label>
+                            <select id="profCategoria" required>
+                                <option value="">Selecciona una categoría</option>
+                                ${(categorias || []).map(c => `<option value="${escaparHTML(c.id)}">${escaparHTML(c.nombre)}</option>`).join('')}
+                            </select>
+                        </div>
+                        <div class="form-group">
+                            <label for="profCiudad">Ciudad principal *</label>
+                            <select id="profCiudad" required>
+                                <option value="">Selecciona una ciudad</option>
+                                ${ciudades.map(c => `<option value="${escaparHTML(c)}">${escaparHTML(c)}</option>`).join('')}
+                            </select>
+                        </div>
+                        <div class="form-group">
+                            <label for="profZona">Zona o barrio de atención *</label>
+                            <input type="text" id="profZona" required placeholder="Ej: Centro, Getsemaní, Bocagrande">
+                            <p class="form-hint">¿Dónde prestas el servicio?</p>
+                        </div>
+                        <div class="form-group">
+                            <label for="profExperiencia">Años de experiencia</label>
+                            <input type="number" id="profExperiencia" min="0" max="60" placeholder="Ej: 8">
+                        </div>
+                    </div>
+                </div>
+
+                <div class="form-section">
+                    <h3 class="form-section-title">Tarifas y disponibilidad</h3>
+                    <div class="form-row">
+                        <div class="form-group">
+                            <label for="profTarifa">Tarifa base (COP) *</label>
+                            <input type="number" id="profTarifa" required min="0" placeholder="Ej: 60000">
+                        </div>
+                        <div class="form-group">
+                            <label for="profUnidad">La tarifa es por</label>
+                            <select id="profUnidad">
+                                <option value="visita">Visita</option>
+                                <option value="hora">Hora</option>
+                                <option value="proyecto">Proyecto</option>
+                                <option value="dia">Día</option>
+                            </select>
+                        </div>
+                        <div class="form-group" style="grid-column:1/-1;">
+                            <label for="profDisponibilidad">Disponibilidad</label>
+                            <input type="text" id="profDisponibilidad" placeholder="Ej: Lunes a sábado">
+                        </div>
+                    </div>
+                </div>
+
+                <div class="form-section">
+                    <h3 class="form-section-title">Presentación</h3>
+                    <div class="form-group">
+                        <label for="profDescripcion">Describe tu servicio y tu experiencia *</label>
+                        <textarea id="profDescripcion" required maxlength="1000"
+                            placeholder="Ej: Instalaciones eléctricas residenciales y comerciales, con garantía escrita de 30 días..."></textarea>
+                    </div>
+                    <div class="form-group" style="margin-top:1rem;">
+                        <label for="profHabilidades">Habilidades o especialidades</label>
+                        <input type="text" id="profHabilidades" placeholder="Tableros, Redes 110 V, Mantenimiento">
+                        <p class="form-hint">Sepáralas con comas. Ayudan a que te encuentren en las búsquedas.</p>
+                    </div>
+                    <div class="rating-row">
+                        <label>Calidad de tu portafolio (autoevaluación)</label>
+                        <div class="rating-input" id="ratingInput">
+                            <input type="hidden" id="profRating" value="0">
+                            ${[1, 2, 3, 4, 5].map(n => `<button type="button" class="rating-star" data-value="${n}" aria-label="${n} estrellas"><i class="fas fa-star"></i></button>`).join('')}
+                        </div>
+                    </div>
+                </div>
+
+                <button type="submit" class="btn-primary btn-large">Crear mi perfil profesional</button>
+            </form>
+        </div>
+    `;
+
+    document.body.appendChild(modal);
+    const overflowOriginal = document.body.style.overflow;
+    document.body.style.overflow = 'hidden';
+
+    const cerrar = () => {
+        modal.remove();
+        document.body.style.overflow = overflowOriginal;
+        document.removeEventListener('keydown', onEsc);
+    };
+    const onEsc = e => {
+        if (e.key === 'Escape') cerrar();
+    };
+
+    modal.querySelector('.modal-close').addEventListener('click', cerrar);
+    modal.addEventListener('click', e => {
+        if (e.target === modal) cerrar();
+    });
+    document.addEventListener('keydown', onEsc);
+
+    const stars = modal.querySelectorAll('.rating-star');
+    stars.forEach(star => {
+        star.addEventListener('click', () => {
+            const valor = Number.parseInt(star.dataset.value, 10);
+            modal.querySelector('#profRating').value = valor;
+            stars.forEach(item => item.classList.toggle('filled', Number.parseInt(item.dataset.value, 10) <= valor));
+        });
+    });
+
+    modal.querySelectorAll('input, select, textarea').forEach(input => {
+        input.addEventListener('input', () => limpiarErrorCampo(input));
+        input.addEventListener('change', () => limpiarErrorCampo(input));
+    });
+
+    modal.querySelector('#profesionalForm').addEventListener('submit', async e => {
+        e.preventDefault();
+        const submitButton = modal.querySelector('button[type="submit"]');
+        submitButton.disabled = true;
+
+        try {
+            const nombre = modal.querySelector('#profNombre').value.trim();
+            const profesion = modal.querySelector('#profProfesion').value.trim();
+            const email = modal.querySelector('#profEmail').value.trim();
+            const telefono = modal.querySelector('#profTelefono').value.trim();
+            const ciudad = modal.querySelector('#profCiudad').value;
+            const zona = modal.querySelector('#profZona').value.trim();
+            if (!zona) {
+                marcarErrorCampo(modal.querySelector('#profZona'), 'La zona es obligatoria');
+                mostrarToast('Por favor completa todos los campos requeridos.', 'error');
+                return;
+            }
+            const categoriaId = Number.parseInt(modal.querySelector('#profCategoria').value, 10);
+            const experiencia = Number.parseInt(modal.querySelector('#profExperiencia').value, 10) || 0;
+            const tarifa = Number.parseFloat(modal.querySelector('#profTarifa').value);
+            const unidad = modal.querySelector('#profUnidad').value;
+            const disponibilidad = modal.querySelector('#profDisponibilidad').value.trim();
+            const descripcion = modal.querySelector('#profDescripcion').value.trim();
+            const habilidades = modal.querySelector('#profHabilidades').value.trim();
+            const rating = Number.parseInt(modal.querySelector('#profRating').value, 10) || 0;
+
+            let authUser = user;
+            if (!authUser) {
+                const password = modal.querySelector('#profPassword').value;
+                const { data, error } = await supabaseClient.auth.signUp({ email, password });
+                if (error) {
+                    marcarErrorCampo(modal.querySelector('#profEmail'), traducirErrorAuth(error.message));
+                    mostrarToast('No se pudo crear la cuenta.', 'error');
+                    return;
+                }
+                authUser = data.user;
+                if (!authUser) {
+                    mostrarToast('La cuenta no pudo confirmarse. Revisa tu correo e inicia sesión antes de crear el perfil.', 'error');
+                    return;
+                }
+            }
+
+            const { data: usuario, error: usuarioQueryError } = await supabaseClient
+                .from('usuarios')
+                .select('id')
+                .eq('email', email)
+                .maybeSingle();
+            if (usuarioQueryError) {
+                console.error('Error al buscar el usuario:', usuarioQueryError);
+                mostrarToast('No se pudieron consultar tus datos. Intenta de nuevo.', 'error');
+                return;
+            }
+
+            let usuarioId = usuario?.id;
+            if (!usuarioId) {
+                const { data: nuevoUsuario, error } = await supabaseClient
+                    .from('usuarios')
+                    .insert([{
+                        nombre,
+                        email,
+                        telefono,
+                        ciudad,
+                        zona_barrio: zona,
+                        rol: 'profesional',
+                        auth_id: authUser.id
+                    }])
+                    .select('id')
+                    .single();
+                if (error) {
+                    console.error('Error al guardar los datos del usuario:', error);
+                    mostrarToast('Error al guardar tus datos.', 'error');
+                    return;
+                }
+                usuarioId = nuevoUsuario.id;
+            } else {
+                const { error } = await supabaseClient
+                    .from('usuarios')
+                    .update({ nombre, telefono, ciudad, zona_barrio: zona, rol: 'profesional' })
+                    .eq('id', usuarioId);
+                if (error) {
+                    console.error('Error al actualizar los datos del usuario:', error);
+                    mostrarToast('No se pudieron actualizar tus datos.', 'error');
+                    return;
+                }
+            }
+
+            const perfilDatos = {
+                profesion,
+                descripcion,
+                experiencia_anios: experiencia,
+                tarifa_base: tarifa,
+                tarifa_unidad: unidad,
+                disponibilidad_horario: disponibilidad,
+                habilidades,
+                portafolio_rating: rating
+            };
+
+            const { data: perfilExistente, error: perfilQueryError } = await supabaseClient
+                .from('perfiles_profesionales')
+                .select('id')
+                .eq('usuario_id', usuarioId)
+                .maybeSingle();
+            if (perfilQueryError) {
+                console.error('Error al buscar el perfil profesional:', perfilQueryError);
+                mostrarToast('No se pudo consultar tu perfil profesional.', 'error');
+                return;
+            }
+
+            let perfilId = perfilExistente?.id;
+            if (perfilId) {
+                const { error } = await supabaseClient
+                    .from('perfiles_profesionales')
+                    .update(perfilDatos)
+                    .eq('id', perfilId);
+                if (error) {
+                    console.error('Error al actualizar el perfil profesional:', error);
+                    mostrarToast('No se pudo actualizar tu perfil profesional.', 'error');
+                    return;
+                }
+            } else {
+                const { data: nuevoPerfil, error } = await supabaseClient
+                    .from('perfiles_profesionales')
+                    .insert([{ usuario_id: usuarioId, plan_id: 1, ...perfilDatos }])
+                    .select('id')
+                    .single();
+                if (error) {
+                    console.error('Error al crear el perfil profesional:', error);
+                    mostrarToast('Error al crear el perfil.', 'error');
+                    return;
+                }
+                perfilId = nuevoPerfil.id;
+            }
+
+            const { error: errorServicio } = await supabaseClient.from('servicios').insert([{
+                profesional_id: perfilId,
+                categoria_id: categoriaId,
+                titulo: profesion,
+                descripcion,
+                precio: tarifa,
+                disponibilidad: true,
+                ciudad,
+                zona_barrio: zona
+            }]);
+            if (errorServicio) {
+                console.error('Error al publicar el servicio:', errorServicio);
+                mostrarToast('Tu perfil se guardó, pero no se pudo publicar el servicio.', 'error');
+                return;
+            }
+
+            mostrarToast('¡Perfil creado y servicio publicado!', 'success');
+            cerrar();
+            setTimeout(() => location.reload(), 1500);
+        } catch (error) {
+            console.error('Error inesperado al crear el perfil profesional:', error);
+            mostrarToast('Ocurrió un error al guardar tu perfil. Intenta de nuevo.', 'error');
+        } finally {
+            if (submitButton.isConnected) submitButton.disabled = false;
+        }
+    });
+}
