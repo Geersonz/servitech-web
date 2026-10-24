@@ -2045,6 +2045,16 @@ h1, h2, h3, h4 {
     font-size: 0.95rem;
 }
 
+#panelUsuario .btn-volver {
+    background: var(--color-primary);
+    color: var(--color-white);
+}
+
+#panelUsuario .btn-volver:hover {
+    background: var(--color-primary-dark);
+    border-color: var(--color-primary-dark);
+}
+
 .btn-volver:hover {
     background: var(--color-primary);
     color: var(--color-white);
@@ -2270,6 +2280,11 @@ html[data-theme="dark"] .btn-logout:hover {
 html[data-theme="dark"] .rating-star,
 html[data-theme="dark"] .calificacion-stars-large .cal-star-page {
     color: #6B7280;
+}
+
+html[data-theme="dark"] .rating-star.filled,
+html[data-theme="dark"] .calificacion-stars-large .cal-star-page.filled {
+    color: var(--color-accent);
 }
 
 html[data-theme="dark"] .footer {
