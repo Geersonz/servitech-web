@@ -2910,3 +2910,168 @@ html[data-theme="dark"] .btn-secondary:hover {
         grid-template-columns: 1fr;
     }
 }
+
+/* ============================================
+   SECCIÓN CONFIGURACIÓN DEL PANEL
+   ============================================ */
+.config-card {
+    background: var(--color-bg);
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-md);
+    padding: 1.5rem;
+    margin-bottom: 1.5rem;
+}
+
+.config-card-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-start;
+    margin-bottom: 1.2rem;
+}
+
+.config-card-header h3 {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    margin-bottom: 0.3rem;
+    color: var(--color-text);
+    font-size: 1.1rem;
+}
+
+.config-card-header h3 i {
+    color: var(--color-primary);
+}
+
+.config-card-header p {
+    margin: 0;
+    color: var(--color-text-light);
+    font-size: 0.9rem;
+}
+
+.config-form {
+    max-width: 500px;
+}
+
+.config-form .form-group {
+    margin-bottom: 1rem;
+}
+
+.config-form .btn-primary {
+    margin-top: 0.25rem;
+}
+
+.config-plan-info {
+    display: flex;
+    align-items: center;
+    gap: 1rem;
+    padding: 1rem;
+    background: var(--color-surface);
+    border: 2px solid var(--color-accent);
+    border-radius: var(--radius-sm);
+}
+
+.config-plan-badge {
+    padding: 0.5rem 1rem;
+    background: var(--color-accent);
+    color: var(--color-white);
+    border-radius: var(--radius-sm);
+    font-size: 0.95rem;
+    font-weight: 700;
+}
+
+.config-plan-badge-muted {
+    background: var(--color-text-light);
+}
+
+.config-plan-details {
+    flex: 1;
+    min-width: 0;
+}
+
+.config-plan-details strong {
+    display: block;
+    margin-bottom: 0.2rem;
+    color: var(--color-text);
+}
+
+.config-plan-details span {
+    color: var(--color-text-light);
+    font-size: 0.85rem;
+}
+
+.config-danger-zone {
+    border-color: var(--color-error);
+    background: #fef2f2;
+}
+
+.config-danger-zone .config-card-header h3 i {
+    color: var(--color-error);
+}
+
+.config-danger-actions {
+    display: flex;
+    gap: 1rem;
+    flex-wrap: wrap;
+}
+
+.btn-danger,
+.btn-danger-outline {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.5rem;
+    padding: 0.7rem 1.2rem;
+    border: 2px solid var(--color-error);
+    border-radius: var(--radius-sm);
+    font-weight: 600;
+    cursor: pointer;
+    transition: all 0.2s;
+}
+
+.btn-danger {
+    background: var(--color-error);
+    color: var(--color-white);
+}
+
+.btn-danger:hover {
+    background: #b91c1c;
+    border-color: #b91c1c;
+    transform: translateY(-1px);
+}
+
+.btn-danger-outline {
+    background: transparent;
+    color: var(--color-error);
+}
+
+.btn-danger-outline:hover {
+    background: var(--color-error);
+    color: var(--color-white);
+}
+
+.btn-danger:disabled,
+.btn-danger-outline:disabled {
+    opacity: 0.6;
+    cursor: not-allowed;
+    transform: none;
+}
+
+html[data-theme="dark"] .config-danger-zone {
+    background: #351f27;
+}
+
+@media (max-width: 600px) {
+    .config-plan-info {
+        align-items: flex-start;
+        flex-direction: column;
+    }
+
+    .config-danger-actions {
+        flex-direction: column;
+    }
+
+    .btn-danger,
+    .btn-danger-outline {
+        width: 100%;
+        justify-content: center;
+    }
+}

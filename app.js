@@ -612,7 +612,8 @@ function mostrarSeccionPanelSinCarga(seccion) {
         perfil: 'seccionPerfil',
         servicios: 'seccionServicios',
         publicar: 'seccionPublicar',
-        calificaciones: 'seccionCalificaciones'
+        calificaciones: 'seccionCalificaciones',
+        configuracion: 'seccionConfiguracion'
     };
     const id = secciones[seccion] || secciones.perfil;
     document.querySelectorAll('.panel-seccion').forEach(elemento => {
@@ -783,7 +784,8 @@ async function mostrarSeccionPanel(seccion) {
         perfil: 'seccionPerfil',
         servicios: 'seccionServicios',
         publicar: 'seccionPublicar',
-        calificaciones: 'seccionCalificaciones'
+        calificaciones: 'seccionCalificaciones',
+        configuracion: 'seccionConfiguracion'
     };
     const seccionId = seccionMap[seccion];
     if (!seccionId) {
@@ -801,6 +803,12 @@ async function mostrarSeccionPanel(seccion) {
 
     if (seccion === 'servicios') await cargarMisServicios();
     if (seccion === 'calificaciones') await cargarMisCalificaciones();
+    if (seccion === 'configuracion') {
+        await cargarInfoPlan();
+        configurarCambiarPassword();
+        configurarEliminarCuenta();
+        configurarCerrarSesion();
+    }
     if (seccion === 'publicar') {
         const contenedor = document.getElementById('formPublicarServicioPanel');
         if (!contenedor.querySelector('button')) {
@@ -815,6 +823,181 @@ async function mostrarSeccionPanel(seccion) {
             contenedor.replaceChildren(descripcion, boton);
         }
     }
+}
+
+async function configurarCambiarPassword() {
+    const form = document.getElementById('formCambiarPassword');
+    if (!form) return;
+
+    form.onsubmit = async event => {
+        event.preventDefault();
+        const actualInput = document.getElementById('configPasswordActual');
+        const nuevaInput = document.getElementById('configPasswordNueva');
+        const confirmInput = document.getElementById('configPasswordConfirm');
+        const actual = actualInput.value;
+        const nueva = nuevaInput.value;
+        const confirmacion = confirmInput.value;
+
+        if (nueva !== confirmacion) {
+            mostrarToast('Las contraseñas nuevas no coinciden.', 'error');
+            confirmInput.focus();
+            return;
+        }
+        if (nueva.length < 6) {
+            mostrarToast('La contraseña debe tener al menos 6 caracteres.', 'error');
+            nuevaInput.focus();
+            return;
+        }
+        if (nueva === actual) {
+            mostrarToast('La nueva contraseña debe ser diferente a la actual.', 'error');
+            nuevaInput.focus();
+            return;
+        }
+
+        const submitBtn = form.querySelector('button[type="submit"]');
+        submitBtn.disabled = true;
+        submitBtn.textContent = 'Actualizando...';
+
+        try {
+            const { data: authData, error: authError } = await supabaseClient.auth.getUser();
+            if (authError) throw authError;
+            if (!authData.user?.email) {
+                mostrarToast('Tu sesión expiró. Inicia sesión nuevamente.', 'error');
+                return;
+            }
+
+            const { data: sesionVerificada, error: verificacionError } = await supabaseClient.auth
+                .signInWithPassword({ email: authData.user.email, password: actual });
+            if (verificacionError) {
+                mostrarToast('La contraseña actual no es correcta.', 'error');
+                actualInput.focus();
+                return;
+            }
+            if (sesionVerificada.user?.id !== authData.user.id) {
+                mostrarToast('No se pudo verificar tu identidad. Inicia sesión de nuevo.', 'error');
+                return;
+            }
+
+            const { error } = await supabaseClient.auth.updateUser({ password: nueva });
+            if (error) throw error;
+            mostrarToast('¡Contraseña actualizada correctamente!', 'success');
+            form.reset();
+        } catch (error) {
+            console.error('Error al cambiar la contraseña:', error);
+            mostrarToast('No se pudo cambiar la contraseña. Intenta de nuevo.', 'error');
+        } finally {
+            if (submitBtn.isConnected) {
+                submitBtn.disabled = false;
+                submitBtn.textContent = 'Actualizar contraseña';
+            }
+        }
+    };
+}
+
+async function cargarInfoPlan() {
+    const planInfo = document.getElementById('configPlanInfo');
+    if (!planInfo) return;
+    planInfo.replaceChildren();
+
+    try {
+        const { data: authData, error: authError } = await supabaseClient.auth.getUser();
+        if (authError) throw authError;
+        if (!authData.user?.email) {
+            mostrarToast('Tu sesión expiró. Inicia sesión nuevamente.', 'error');
+            return;
+        }
+
+        const { data: usuario, error: usuarioError } = await supabaseClient
+            .from('usuarios')
+            .select('id')
+            .eq('email', authData.user.email)
+            .maybeSingle();
+        if (usuarioError) throw usuarioError;
+
+        let plan;
+        if (usuario) {
+            const { data: perfil, error: perfilError } = await supabaseClient
+                .from('perfiles_profesionales')
+                .select('planes_suscripcion(nombre, precio_mensual, limite_publicaciones)')
+                .eq('usuario_id', usuario.id)
+                .maybeSingle();
+            if (perfilError) throw perfilError;
+            plan = Array.isArray(perfil?.planes_suscripcion)
+                ? perfil.planes_suscripcion[0]
+                : perfil?.planes_suscripcion;
+        }
+
+        const badge = document.createElement('div');
+        badge.className = 'config-plan-badge';
+        const details = document.createElement('div');
+        details.className = 'config-plan-details';
+        const title = document.createElement('strong');
+        const description = document.createElement('span');
+
+        if (plan) {
+            badge.textContent = plan.nombre || 'Plan activo';
+            title.textContent = `$${Number(plan.precio_mensual || 0).toLocaleString('es-CO')} COP / mes`;
+            description.textContent = `Hasta ${plan.limite_publicaciones ?? 0} publicaciones`;
+        } else {
+            badge.classList.add('config-plan-badge-muted');
+            badge.textContent = 'Sin plan';
+            title.textContent = 'No tienes un perfil profesional activo';
+            description.textContent = 'Crea tu perfil para acceder a los planes';
+        }
+
+        details.append(title, description);
+        planInfo.append(badge, details);
+    } catch (error) {
+        console.error('Error al cargar el plan del usuario:', error);
+        mostrarToast('No se pudo cargar la información de tu plan.', 'error');
+    }
+}
+
+function configurarEliminarCuenta() {
+    const btn = document.getElementById('btnEliminarCuenta');
+    if (!btn) return;
+
+    btn.onclick = async () => {
+        const confirmacion = confirm(
+            '¿Estás seguro de que deseas eliminar tu cuenta? Esta acción es irreversible.'
+        );
+        if (!confirmacion) return;
+
+        if (prompt('Escribe "ELIMINAR" para confirmar la eliminación de tu cuenta:') !== 'ELIMINAR') {
+            mostrarToast('Operación cancelada.', 'info');
+            return;
+        }
+
+        btn.disabled = true;
+        try {
+            const { data, error } = await supabaseClient.functions.invoke('delete-account', {
+                body: { confirmation: 'ELIMINAR' }
+            });
+            if (error) throw error;
+            if (!data?.success) {
+                throw new Error('La función de eliminación no confirmó que la cuenta se eliminara.');
+            }
+
+            mostrarToast('Cuenta eliminada correctamente.', 'success');
+            setTimeout(() => location.reload(), 1500);
+        } catch (error) {
+            console.error('Error al eliminar la cuenta:', error);
+            mostrarToast('No se pudo eliminar la cuenta. Verifica que la función segura delete-account esté configurada.', 'error');
+        } finally {
+            if (btn.isConnected) btn.disabled = false;
+        }
+    };
+}
+
+function configurarCerrarSesion() {
+    const btn = document.getElementById('btnCerrarSesionConfig');
+    if (!btn) return;
+
+    btn.onclick = async () => {
+        if (confirm('¿Estás seguro de que deseas cerrar sesión?')) {
+            await cerrarSesion();
+        }
+    };
 }
 
 async function cargarMisServicios() {
@@ -2089,7 +2272,7 @@ document.addEventListener('DOMContentLoaded', () => {
         if (menuItem.id === 'menuPublicarServicio') {
             abrirPanelUsuario('publicar');
         } else if (menuItem.id === 'menuConfiguracion') {
-            abrirPanelUsuario('perfil');
+            abrirPanelUsuario('configuracion');
         } else {
             abrirPanelUsuario();
         }
