@@ -299,7 +299,7 @@ async function cargarProfesionales(limite = 3) {
 
     data.forEach(perfil => {
         const card = document.createElement('div');
-        card.className = 'professional-card';
+        card.className = 'col-12 col-md-6 col-lg-4';
         
         const nombre = perfil.usuarios?.nombre || 'Profesional';
         const iniciales = nombre.split(' ').map(n => n[0]).join('').substring(0, 2).toUpperCase();
@@ -308,30 +308,36 @@ async function cargarProfesionales(limite = 3) {
         const estrellasHTML = generarEstrellasHTML(perfil.reputacion_promedio);
         
         card.innerHTML = `
-            <div class="professional-header">
-                <div class="professional-avatar" data-avatar-palette="${paletaAvatar}">${iniciales}</div>
-                <div class="professional-info">
-                    <h3>${nombre}</h3>
-                    <div class="professional-specialty">${perfil.descripcion?.substring(0, 50) || 'Profesional'}...</div>
-                </div>
-            </div>
-            
-            <div class="professional-stats">
-                <div class="rating">
-                    ${estrellasHTML}
-                    <span>${(perfil.reputacion_promedio || 0).toFixed(1)}</span>
-                </div>
-                ${perfil.verificado ? `
-                    <div class="verified-badge">
-                        <i class="fas fa-check-circle"></i>
-                        <span>Verificado</span>
+            <div class="card h-100 border-0 shadow-sm professional-card-boost">
+                <div class="card-body">
+                    <div class="d-flex align-items-center mb-3">
+                        <div class="professional-avatar me-3" data-avatar-palette="${paletaAvatar}">${iniciales}</div>
+                        <div class="flex-grow-1">
+                            <h5 class="card-title mb-1">${nombre}</h5>
+                            <p class="card-text text-muted small mb-0">${perfil.descripcion?.substring(0, 50) || 'Profesional'}...</p>
+                        </div>
                     </div>
-                ` : ''}
+
+                    <div class="d-flex justify-content-between align-items-center mb-3">
+                        <div class="rating">
+                            ${estrellasHTML}
+                            <span class="ms-1 fw-semibold">${(perfil.reputacion_promedio || 0).toFixed(1)}</span>
+                        </div>
+                        ${perfil.verificado ? `
+                            <span class="badge bg-success">
+                                <i class="fas fa-check-circle"></i> Verificado
+                            </span>
+                        ` : ''}
+                    </div>
+
+                    <p class="card-text text-muted small">${perfil.descripcion || 'Profesional verificado en la plataforma'}</p>
+                </div>
+                <div class="card-footer bg-transparent border-0 pb-3">
+                    <button class="btn btn-primary w-100 btn-view-profile" data-id="${perfil.id}">
+                        <i class="fas fa-user me-2"></i>Ver perfil completo
+                    </button>
+                </div>
             </div>
-            
-            <p class="professional-description">${perfil.descripcion || 'Profesional verificado en la plataforma'}</p>
-            
-            <button class="btn-view-profile" data-id="${perfil.id}">Ver perfil completo</button>
         `;
         
         grid.appendChild(card);

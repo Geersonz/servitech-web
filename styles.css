@@ -833,24 +833,29 @@ h1, h2, h3, h4 {
     background: var(--color-surface);
 }
 
-.professionals-grid {
-    display: grid;
-    grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
-    gap: 2rem;
+#professionalsGrid {
     margin-bottom: 3rem;
 }
 
-.professional-card {
+#professionalsGrid > div {
+    /* Las columnas las controla Bootstrap con col-md-4 */
+}
+
+.professional-card,
+.professional-card-boost {
     background: linear-gradient(135deg, #f4f6f9 0%, #edf1f6 100%);
     border-radius: var(--radius-lg);
-    padding: 2rem;
     transition: all 0.3s;
     box-shadow: var(--shadow-sm);
 }
 
-.professional-card:hover {
+.professional-card-boost:hover {
     transform: translateY(-5px);
     box-shadow: var(--shadow-lg);
+}
+
+.professional-card.loading {
+    padding: 2rem;
 }
 
 .professional-header {
@@ -959,7 +964,7 @@ h1, h2, h3, h4 {
     line-height: 1.6;
 }
 
-.btn-view-profile {
+.btn-view-profile:not(.btn) {
     width: 100%;
     padding: 0.8rem;
     background: var(--color-primary);
@@ -971,7 +976,7 @@ h1, h2, h3, h4 {
     transition: all 0.3s;
 }
 
-.btn-view-profile:hover {
+.btn-view-profile:not(.btn):hover {
     background: var(--color-primary-dark);
 }
 
@@ -2200,7 +2205,8 @@ html[data-theme="dark"] .how-it-works {
     background: linear-gradient(135deg, #353f57 0%, #262d38 100%);
 }
 
-html[data-theme="dark"] .professional-card {
+html[data-theme="dark"] .professional-card,
+html[data-theme="dark"] .professional-card-boost {
     background: linear-gradient(135deg, #273247 0%, #202a39 100%);
 }
 
@@ -3074,4 +3080,43 @@ html[data-theme="dark"] .config-danger-zone {
         width: 100%;
         justify-content: center;
     }
+}
+
+/* ============================================
+   TARJETAS DE PROFESIONALES CON BOOTSTRAP
+   ============================================ */
+.professional-card-boost {
+    transition: all 0.3s ease;
+    border-radius: var(--radius-lg) !important;
+    overflow: hidden;
+}
+
+.professional-card-boost:hover {
+    transform: translateY(-5px);
+    box-shadow: 0 10px 25px rgba(0, 0, 0, 0.15) !important;
+}
+
+.professional-card-boost .card-title {
+    font-family: 'Poppins', sans-serif;
+    font-weight: 700;
+    color: var(--color-text);
+}
+
+.professional-card-boost .btn-primary {
+    background: var(--color-primary);
+    border-color: var(--color-primary);
+    border-radius: var(--radius-sm);
+    padding: 0.7rem;
+    font-weight: 600;
+    transition: all 0.3s;
+}
+
+.professional-card-boost .btn-primary:hover {
+    background: var(--color-primary-dark);
+    border-color: var(--color-primary-dark);
+}
+
+.professional-card-boost .badge {
+    font-size: 0.75rem;
+    padding: 0.4rem 0.6rem;
 }
