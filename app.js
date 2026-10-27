@@ -1346,7 +1346,6 @@ async function cargarMisCalificaciones() {
 async function mostrarPaginaCalificacion(perfilId, modalPerfil = null) {
     let contratante;
     let profesional;
-    let servicios;
 
     try {
         const { data: authData, error: authError } = await supabaseClient.auth.getUser();
@@ -1382,17 +1381,6 @@ async function mostrarPaginaCalificacion(perfilId, modalPerfil = null) {
             return;
         }
         profesional = profesionalData;
-
-        const { data: serviciosData, error: serviciosError } = await supabaseClient
-            .from('servicios')
-            .select('id, titulo')
-            .eq('profesional_id', perfilId);
-        if (serviciosError) throw serviciosError;
-        if (!serviciosData?.length) {
-            mostrarToast('Este profesional no tiene servicios publicados.', 'info');
-            return;
-        }
-        servicios = serviciosData;
     } catch (error) {
         console.error('Error al preparar la página de calificación:', error);
         mostrarToast('No se pudo cargar el formulario de calificación. Intenta de nuevo.', 'error');
@@ -1413,6 +1401,20 @@ async function mostrarPaginaCalificacion(perfilId, modalPerfil = null) {
         console.error('No se encontró el formulario completo de calificación.');
         mostrarToast('No se pudo abrir el formulario de calificación. Recarga la página.', 'error');
         return;
+    }
+
+    let servicios = [];
+    let errorCargaServicios = null;
+    try {
+        const { data: serviciosData, error: serviciosError } = await supabaseClient
+            .from('servicios')
+            .select('id, titulo')
+            .eq('profesional_id', perfilId);
+        if (serviciosError) throw serviciosError;
+        servicios = serviciosData || [];
+    } catch (error) {
+        errorCargaServicios = error;
+        console.error('Error al cargar los servicios del profesional:', error);
     }
 
     const vistasPrincipales = [
@@ -1453,6 +1455,12 @@ async function mostrarPaginaCalificacion(perfilId, modalPerfil = null) {
     servicios.forEach(servicio => {
         selectServicios.add(new Option(servicio.titulo || 'Servicio sin título', servicio.id));
     });
+    selectServicios.disabled = servicios.length === 0;
+    if (errorCargaServicios) {
+        mostrarToast('No se pudieron cargar los servicios. Puedes volver a intentarlo más tarde.', 'error');
+    } else if (servicios.length === 0) {
+        mostrarToast('Este profesional no tiene servicios publicados para calificar.', 'info');
+    }
 
     valorInput.value = '0';
     comentarioInput.value = '';
@@ -1636,7 +1644,7 @@ async function mostrarPaginaCalificacion(perfilId, modalPerfil = null) {
 }
 
 // ============================================
-// MODAL DE PERFIL PROFESIONAL
+// MODAL DE PERFIL PROFESIONAL (CON BOOTSTRAP)
 // ============================================
 async function mostrarPerfilProfesional(perfilId) {
     const { data: perfil, error } = await supabaseClient
@@ -1657,18 +1665,17 @@ async function mostrarPerfilProfesional(perfilId) {
         return;
     }
 
-    const nombre = perfil.usuarios?.nombre || 'Profesional';
-    const iniciales = nombre.split(' ').map(n => n[0]).join('').substring(0, 2).toUpperCase();
-    const paletaAvatar = obtenerPaletaAvatar(perfil.id);
-    
-    const estrellasHTML = generarEstrellasHTML(perfil.reputacion_promedio);
-    const escaparHTML = valor => String(valor).replace(/[&<>"']/g, caracter => ({
+    const escaparHTML = valor => String(valor ?? '').replace(/[&<>"']/g, caracter => ({
         '&': '&amp;',
         '<': '&lt;',
         '>': '&gt;',
         '"': '&quot;',
         "'": '&#39;'
     })[caracter]);
+    const nombre = perfil.usuarios?.nombre || 'Profesional';
+    const iniciales = nombre.split(' ').map(n => n[0]).join('').substring(0, 2).toUpperCase();
+    const paletaAvatar = obtenerPaletaAvatar(perfil.id);
+    const estrellasHTML = generarEstrellasHTML(perfil.reputacion_promedio);
     const fechaCalificacion = fecha => {
         const timestamp = Date.parse(fecha || '');
         return Number.isNaN(timestamp) ? 0 : timestamp;
@@ -1677,69 +1684,185 @@ async function mostrarPerfilProfesional(perfilId) {
         ? [...perfil.calificaciones].sort((a, b) => fechaCalificacion(b.fecha) - fechaCalificacion(a.fecha))
         : [];
 
+    const planNombre = perfil.planes_suscripcion?.nombre || 'Básico';
+    const planColor = planNombre === 'Premium' ? 'bg-warning text-dark'
+        : planNombre === 'Destacado' ? 'bg-info text-dark'
+            : 'bg-secondary';
+    const servicios = Array.isArray(perfil.servicios) ? perfil.servicios : [];
+    const insignias = Array.isArray(perfil.insignias) ? perfil.insignias : [];
+    const habilidades = typeof perfil.habilidades === 'string'
+        ? perfil.habilidades.split(',').map(habilidad => habilidad.trim()).filter(Boolean)
+        : [];
+
     const modal = document.createElement('div');
     modal.className = 'modal-overlay';
     modal.innerHTML = `
-        <div class="modal-content">
-            <button class="modal-close">&times;</button>
-            <div class="modal-header">
-                <div class="professional-avatar-large" data-avatar-palette="${paletaAvatar}">${iniciales}</div>
-                <div class="modal-title">
-                    <h2>${nombre}</h2>
-                    <div class="modal-stats">
-                        <div class="rating">
-                            ${estrellasHTML}
-                            <span>${(perfil.reputacion_promedio || 0).toFixed(1)}</span>
+        <div class="modal-content modal-profile-bootstrap" role="dialog" aria-modal="true" aria-labelledby="perfilTitulo">
+            <button class="modal-close" type="button" aria-label="Cerrar">&times;</button>
+
+            <div class="profile-header">
+                <div class="row align-items-center">
+                    <div class="col-auto">
+                        <div class="profile-avatar-large" data-avatar-palette="${paletaAvatar}">
+                            ${escaparHTML(iniciales)}
                         </div>
-                        ${perfil.verificado ? '<div class="verified-badge"><i class="fas fa-check-circle"></i> Verificado</div>' : ''}
-                        <div class="plan-badge">${perfil.planes_suscripcion?.nombre || 'Básico'}</div>
+                    </div>
+                    <div class="col">
+                        <h2 class="profile-name mb-1" id="perfilTitulo">${escaparHTML(nombre)}</h2>
+                        <div class="profile-meta d-flex flex-wrap align-items-center gap-2">
+                            <div class="rating">
+                                ${estrellasHTML}
+                                <span class="ms-1 fw-bold">${(Number(perfil.reputacion_promedio) || 0).toFixed(1)}</span>
+                            </div>
+                            ${perfil.verificado ? `
+                                <span class="badge bg-success-soft">
+                                    <i class="fas fa-check-circle"></i> Verificado
+                                </span>
+                            ` : ''}
+                            <span class="badge ${planColor}">${escaparHTML(planNombre)}</span>
+                        </div>
                     </div>
                 </div>
             </div>
-            
-            <div class="modal-body">
-                <div class="info-section">
-                    <h3><i class="fas fa-info-circle"></i> Descripción</h3>
-                    <p>${perfil.descripcion || 'Sin descripción'}</p>
-                </div>
-                
-                <div class="info-section">
-                    <h3><i class="fas fa-briefcase"></i> Experiencia</h3>
-                    <p>${perfil.experiencia_anios || 0} años de experiencia</p>
-                </div>
-                
-                <div class="info-section">
-                    <h3><i class="fas fa-dollar-sign"></i> Tarifa base</h3>
-                    <p>$${(perfil.tarifa_base || 0).toLocaleString()} COP</p>
-                </div>
-                
-                <div class="info-section">
-                    <h3><i class="fas fa-map-marker-alt"></i> Ubicación</h3>
-                    <p>${perfil.usuarios?.ciudad || 'No especificada'}</p>
-                </div>
-                
-                <div class="info-section">
-                    <h3><i class="fas fa-phone"></i> Contacto</h3>
-                    <p>${perfil.usuarios?.telefono || 'No disponible'}</p>
-                    <p>${perfil.usuarios?.email || 'No disponible'}</p>
-                </div>
-                
-                ${perfil.insignias && perfil.insignias.length > 0 ? `
-                    <div class="info-section">
-                        <h3><i class="fas fa-award"></i> Insignias</h3>
-                        <div class="insignias-list">
-                            ${perfil.insignias.map(ins => `<span class="insignia-badge">${ins.tipo}</span>`).join('')}
+
+            <div class="profile-body">
+                <div class="row g-4">
+                    <div class="col-md-7">
+                        <div class="info-card">
+                            <h3 class="info-card-title">
+                                <i class="fas fa-info-circle"></i> Descripción
+                            </h3>
+                            <p class="info-card-text">${escaparHTML(perfil.descripcion || 'Sin descripción')}</p>
                         </div>
+
+                        ${habilidades.length > 0 ? `
+                            <div class="info-card">
+                                <h3 class="info-card-title">
+                                    <i class="fas fa-lightbulb"></i> Habilidades
+                                </h3>
+                                <div class="habilidades-tags">
+                                    ${habilidades.map(habilidad => `
+                                        <span class="badge bg-primary-soft">${escaparHTML(habilidad)}</span>
+                                    `).join('')}
+                                </div>
+                            </div>
+                        ` : ''}
+
+                        ${servicios.length > 0 ? `
+                            <div class="info-card">
+                                <h3 class="info-card-title">
+                                    <i class="fas fa-tools"></i> Servicios ofrecidos
+                                </h3>
+                                <div class="servicios-list">
+                                    ${servicios.map(servicio => `
+                                        <div class="servicio-item">
+                                            <div class="servicio-header">
+                                                <strong>${escaparHTML(servicio.titulo || '')}</strong>
+                                                <span class="servicio-precio">$${(Number(servicio.precio) || 0).toLocaleString('es-CO')} COP</span>
+                                            </div>
+                                            ${servicio.descripcion ? `<p class="servicio-desc">${escaparHTML(servicio.descripcion)}</p>` : ''}
+                                        </div>
+                                    `).join('')}
+                                </div>
+                            </div>
+                        ` : ''}
                     </div>
-                ` : ''}
-                
+
+                    <div class="col-md-5">
+                        <div class="info-sidebar">
+                            <div class="info-sidebar-item">
+                                <div class="info-sidebar-icon">
+                                    <i class="fas fa-briefcase"></i>
+                                </div>
+                                <div class="info-sidebar-content">
+                                    <span class="info-sidebar-label">Experiencia</span>
+                                    <span class="info-sidebar-value">${(Number(perfil.experiencia_anios) || 0)} años</span>
+                                </div>
+                            </div>
+
+                            <div class="info-sidebar-item">
+                                <div class="info-sidebar-icon">
+                                    <i class="fas fa-dollar-sign"></i>
+                                </div>
+                                <div class="info-sidebar-content">
+                                    <span class="info-sidebar-label">Tarifa base</span>
+                                    <span class="info-sidebar-value">$${(Number(perfil.tarifa_base) || 0).toLocaleString('es-CO')} COP</span>
+                                </div>
+                            </div>
+
+                            ${perfil.tarifa_unidad ? `
+                                <div class="info-sidebar-item">
+                                    <div class="info-sidebar-icon">
+                                        <i class="fas fa-clock"></i>
+                                    </div>
+                                    <div class="info-sidebar-content">
+                                        <span class="info-sidebar-label">Tarifa por</span>
+                                        <span class="info-sidebar-value text-capitalize">${escaparHTML(perfil.tarifa_unidad)}</span>
+                                    </div>
+                                </div>
+                            ` : ''}
+
+                            <div class="info-sidebar-item">
+                                <div class="info-sidebar-icon">
+                                    <i class="fas fa-map-marker-alt"></i>
+                                </div>
+                                <div class="info-sidebar-content">
+                                    <span class="info-sidebar-label">Ubicación</span>
+                                    <span class="info-sidebar-value">${escaparHTML(perfil.usuarios?.ciudad || 'No especificada')}</span>
+                                </div>
+                            </div>
+
+                            ${perfil.usuarios?.telefono ? `
+                                <div class="info-sidebar-item">
+                                    <div class="info-sidebar-icon">
+                                        <i class="fas fa-phone"></i>
+                                    </div>
+                                    <div class="info-sidebar-content">
+                                        <span class="info-sidebar-label">Teléfono</span>
+                                        <span class="info-sidebar-value">${escaparHTML(perfil.usuarios.telefono)}</span>
+                                    </div>
+                                </div>
+                            ` : ''}
+
+                            ${perfil.usuarios?.email ? `
+                                <div class="info-sidebar-item">
+                                    <div class="info-sidebar-icon">
+                                        <i class="fas fa-envelope"></i>
+                                    </div>
+                                    <div class="info-sidebar-content">
+                                        <span class="info-sidebar-label">Email</span>
+                                        <span class="info-sidebar-value email-value">${escaparHTML(perfil.usuarios.email)}</span>
+                                    </div>
+                                </div>
+                            ` : ''}
+                        </div>
+
+                        ${insignias.length > 0 ? `
+                            <div class="info-card mt-3">
+                                <h3 class="info-card-title">
+                                    <i class="fas fa-award"></i> Insignias
+                                </h3>
+                                <div class="insignias-list">
+                                    ${insignias.map(insignia => `
+                                        <span class="insignia-badge">
+                                            <i class="fas fa-medal"></i> ${escaparHTML(insignia.tipo || '')}
+                                        </span>
+                                    `).join('')}
+                                </div>
+                            </div>
+                        ` : ''}
+                    </div>
+                </div>
+
                 ${calificacionesRecientes.length > 0 ? `
-                    <div class="info-section">
-                        <h3><i class="fas fa-comments"></i> Opiniones recientes (${calificacionesRecientes.length})</h3>
+                    <div class="info-card mt-4">
+                        <h3 class="info-card-title">
+                            <i class="fas fa-comments"></i> Opiniones recientes (${calificacionesRecientes.length})
+                        </h3>
                         <div class="calificaciones-list">
-                            ${calificacionesRecientes.slice(0, 5).map(cal => {
-                                const valor = Math.min(5, Math.max(0, Number.parseInt(cal.calificacion, 10) || 0));
-                                const fecha = cal.fecha ? new Date(cal.fecha) : null;
+                            ${calificacionesRecientes.slice(0, 5).map(calificacion => {
+                                const valor = Math.min(5, Math.max(0, Number.parseInt(calificacion.calificacion, 10) || 0));
+                                const fecha = calificacion.fecha ? new Date(calificacion.fecha) : null;
                                 const fechaTexto = fecha && !Number.isNaN(fecha.getTime())
                                     ? fecha.toLocaleDateString('es-CO')
                                     : '';
@@ -1751,60 +1874,52 @@ async function mostrarPerfilProfesional(perfilId) {
                                             </div>
                                             <span class="calificacion-fecha">${fechaTexto}</span>
                                         </div>
-                                        ${cal.comentario ? `<p class="calificacion-comentario">"${escaparHTML(cal.comentario)}"</p>` : ''}
+                                        ${calificacion.comentario ? `<p class="calificacion-comentario">"${escaparHTML(calificacion.comentario)}"</p>` : ''}
                                     </div>
                                 `;
                             }).join('')}
                         </div>
                     </div>
                 ` : ''}
-
-                ${perfil.servicios && perfil.servicios.length > 0 ? `
-                    <div class="info-section">
-                        <h3><i class="fas fa-tools"></i> Servicios ofrecidos</h3>
-                        <div class="servicios-list">
-                            ${perfil.servicios.map(serv => `
-                                <div class="servicio-item">
-                                    <strong>${serv.titulo}</strong>
-                                    <p>${serv.descripcion || ''}</p>
-                                    <span class="servicio-precio">$${(serv.precio || 0).toLocaleString()} COP</span>
-                                </div>
-                            `).join('')}
-                        </div>
-                    </div>
-                ` : ''}
             </div>
-            
-            <div class="modal-footer">
-                <button class="btn-secondary btn-large" id="btnCalificar" type="button">
-                    <i class="fas fa-star" aria-hidden="true"></i> Calificar servicio
+
+            <div class="profile-footer">
+                <button class="btn btn-secondary-custom" id="btnCalificar" type="button">
+                    <i class="fas fa-star me-2"></i> Calificar servicio
                 </button>
-                <button class="btn-primary btn-large">Contactar profesional</button>
+                <button class="btn btn-primary-custom" type="button">
+                    <i class="fas fa-envelope me-2"></i> Contactar profesional
+                </button>
             </div>
         </div>
     `;
 
-    document.body.appendChild(modal);
+    const overflowAnterior = document.body.style.overflow;
+    const cerrar = () => {
+        modal.remove();
+        document.body.style.overflow = overflowAnterior;
+        document.removeEventListener('keydown', onEsc);
+    };
+    const onEsc = event => {
+        if (event.key === 'Escape') cerrar();
+    };
 
-    // Conectar botón de calificar
+    document.body.appendChild(modal);
+    document.body.style.overflow = 'hidden';
+
     const btnCalificar = modal.querySelector('#btnCalificar');
     if (btnCalificar) {
-        btnCalificar.addEventListener('click', () => {
-            modal.remove();
+        btnCalificar.addEventListener('click', event => {
+            event.stopPropagation();
+            cerrar();
             mostrarPaginaCalificacion(perfilId);
         });
     }
-
-    // Cerrar modal
-    modal.querySelector('.modal-close').addEventListener('click', () => {
-        modal.remove();
+    modal.querySelector('.modal-close').addEventListener('click', cerrar);
+    modal.addEventListener('click', event => {
+        if (event.target === modal) cerrar();
     });
-
-    modal.addEventListener('click', (e) => {
-        if (e.target === modal) {
-            modal.remove();
-        }
-    });
+    document.addEventListener('keydown', onEsc);
 }
 
 // ============================================
@@ -1821,7 +1936,7 @@ function mostrarModalAuth(tabInicial = 'login') {
             <button class="modal-close" type="button" aria-label="Cerrar">&times;</button>
             <div class="modal-auth-header">
                 <div class="modal-auth-logo"><i class="fas fa-bolt" aria-hidden="true"></i></div>
-                <h2 class="modal-auth-title" id="authTitle">${tabActivoInicial === 'login' ? 'Bienvenido de nuevo' : 'Únete a Servitech'}</h2>
+                <h2 class="modal-auth-title" id="authTitle">${tabActivoInicial === 'login' ? 'Bienvenido a Servitech' : 'Únete a Servitech'}</h2>
                 <p class="modal-auth-subtitle" id="authSubtitle">${tabActivoInicial === 'login'
                     ? 'Entra con tu correo para seguir donde lo dejaste.'
                     : 'Crea tu cuenta y conecta con profesionales verificados.'}</p>
@@ -1941,7 +2056,7 @@ function mostrarModalAuth(tabInicial = 'login') {
             });
             formLogin.classList.toggle('hidden', !mostrarLogin);
             formRegister.classList.toggle('hidden', mostrarLogin);
-            titulo.textContent = mostrarLogin ? 'Bienvenido de nuevo' : 'Únete a Servitech';
+            titulo.textContent = mostrarLogin ? 'Bienvenido a Servitech' : 'Únete a Servitech';
             subtitulo.textContent = mostrarLogin
                 ? 'Entra con tu correo para seguir donde lo dejaste.'
                 : 'Crea tu cuenta y conecta con profesionales verificados.';
@@ -2072,16 +2187,8 @@ function mostrarModalAuth(tabInicial = 'login') {
 // ============================================
 // HEADER Y SESIÓN DEL USUARIO
 // ============================================
-function aplicarTema(tema) {
-    document.documentElement.dataset.theme = tema;
-
-    document.querySelectorAll('.theme-toggle').forEach(button => {
-        const activarModoOscuro = tema !== 'dark';
-        button.setAttribute('aria-label', activarModoOscuro ? 'Activar modo oscuro' : 'Activar modo claro');
-        button.setAttribute('title', activarModoOscuro ? 'Activar modo oscuro' : 'Activar modo claro');
-        button.setAttribute('aria-pressed', String(tema === 'dark'));
-        button.innerHTML = `<i class="fas fa-${activarModoOscuro ? 'moon' : 'sun'}" aria-hidden="true"></i>`;
-    });
+function aplicarTema() {
+    document.documentElement.dataset.theme = 'dark';
 }
 
 async function actualizarHeaderParaUsuarioLogueado(email) {
@@ -2115,10 +2222,6 @@ async function actualizarHeaderParaUsuarioLogueado(email) {
     const paletaAvatarUsuario = obtenerPaletaAvatar(email);
 
     navActions.innerHTML = `
-        <button class="theme-toggle" type="button" aria-label="Activar modo oscuro"
-            title="Activar modo oscuro">
-            <i class="fas fa-moon" aria-hidden="true"></i>
-        </button>
         <div class="user-menu-container">
             <button class="user-menu-trigger" id="userMenuTrigger" type="button" aria-label="Abrir menú de usuario" aria-controls="userDropdown" aria-expanded="false">
                 <div class="user-avatar-small" data-avatar-palette="${paletaAvatarUsuario}"></div>
@@ -2167,7 +2270,7 @@ async function actualizarHeaderParaUsuarioLogueado(email) {
             </div>
         </div>
     `;
-    aplicarTema(document.documentElement.dataset.theme || 'light');
+    aplicarTema();
 
     navActions.querySelectorAll('.user-avatar-small, .user-avatar-large').forEach(avatar => {
         avatar.textContent = iniciales;
@@ -2238,23 +2341,7 @@ document.addEventListener('DOMContentLoaded', () => {
         guardarVistaActiva(vistaInicial);
     }
 
-    const temaGuardado = localStorage.getItem('servitech-theme');
-    const temaPreferido = window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
-    aplicarTema(temaGuardado === 'dark' || temaGuardado === 'light' ? temaGuardado : temaPreferido);
-
-    document.addEventListener('click', event => {
-        if (!(event.target instanceof Element)) {
-            return;
-        }
-        const themeToggle = event.target.closest('.theme-toggle');
-        if (!themeToggle) {
-            return;
-        }
-
-        const nuevoTema = document.documentElement.dataset.theme === 'dark' ? 'light' : 'dark';
-        localStorage.setItem('servitech-theme', nuevoTema);
-        aplicarTema(nuevoTema);
-    });
+    aplicarTema();
 
     document.querySelectorAll('.panel-nav-btn').forEach(boton => {
         boton.addEventListener('click', () => {
@@ -2318,6 +2405,81 @@ document.addEventListener('DOMContentLoaded', () => {
 
     // Detectar sección activa al hacer scroll
     const sections = document.querySelectorAll('section[id]');
+    const header = document.querySelector('.header');
+    let frameActualizacionHeader = null;
+
+    const actualizarFondoHeader = () => {
+        frameActualizacionHeader = null;
+        if (!header) return;
+
+        const alturaHeader = header.getBoundingClientRect().height;
+        const seccionesVisibles = [...document.querySelectorAll('body > section:not([hidden]), body > footer')]
+            .filter(section => {
+                const estilos = getComputedStyle(section);
+                return estilos.display !== 'none' && estilos.visibility !== 'hidden';
+            });
+        const puntoSeguimiento = alturaHeader / 2;
+        const seccionActual = seccionesVisibles.find(section => {
+            const rect = section.getBoundingClientRect();
+            return rect.top <= puntoSeguimiento && rect.bottom > puntoSeguimiento;
+        }) || seccionesVisibles.find(section => section.getBoundingClientRect().top > puntoSeguimiento);
+
+        if (!seccionActual) return;
+
+        const rectSeccion = seccionActual.getBoundingClientRect();
+        const estilosSeccion = getComputedStyle(seccionActual);
+        const desplazamiento = Math.max(0, Math.min(rectSeccion.height, -rectSeccion.top));
+        const alturaFondo = Math.max(1, seccionActual.offsetHeight);
+        const fondoTransparente = estilosSeccion.backgroundColor === 'rgba(0, 0, 0, 0)';
+        const fondoColor = fondoTransparente
+            ? getComputedStyle(document.body).backgroundColor
+            : estilosSeccion.backgroundColor;
+        const modoOscuro = document.documentElement.dataset.theme === 'dark';
+        const canalesTexto = estilosSeccion.color.match(/[\d.]+/g)?.slice(0, 3).map(Number) || [31, 41, 55];
+        const luminanciaTexto = canalesTexto[0] * 0.2126 + canalesTexto[1] * 0.7152 + canalesTexto[2] * 0.0722;
+        const contrasteOscuro = !modoOscuro && (
+            seccionActual.matches('.categories')
+                ? desplazamiento / alturaFondo >= 0.65
+                : seccionActual.matches('.hero, .stats, .calificacion-page, .footer')
+                    ? false
+                    : luminanciaTexto < 127
+        );
+
+        header.style.setProperty('--header-bg-image', estilosSeccion.backgroundImage);
+        header.style.setProperty('--header-bg-color', fondoColor);
+        header.style.setProperty('--header-bg-size', `100% ${alturaFondo}px`);
+        header.style.setProperty('--header-bg-offset', `${-desplazamiento}px`);
+        header.dataset.contrast = contrasteOscuro ? 'dark' : 'light';
+    };
+
+    const programarActualizacionHeader = () => {
+        if (frameActualizacionHeader === null) {
+            frameActualizacionHeader = requestAnimationFrame(actualizarFondoHeader);
+        }
+    };
+
+    actualizarFondoHeader();
+    window.addEventListener('scroll', programarActualizacionHeader, { passive: true });
+    window.addEventListener('resize', programarActualizacionHeader);
+    window.addEventListener('load', programarActualizacionHeader, { once: true });
+    const observerVisibilidadSecciones = new MutationObserver(programarActualizacionHeader);
+    document.querySelectorAll('body > section, body > footer').forEach(section => {
+        observerVisibilidadSecciones.observe(section, {
+            attributes: true,
+            attributeFilter: ['hidden', 'style']
+        });
+    });
+    if ('ResizeObserver' in window) {
+        const observerTamanosSecciones = new ResizeObserver(programarActualizacionHeader);
+        document.querySelectorAll('body > section, body > footer').forEach(section => {
+            observerTamanosSecciones.observe(section);
+        });
+    }
+    const observerTema = new MutationObserver(programarActualizacionHeader);
+    observerTema.observe(document.documentElement, {
+        attributes: true,
+        attributeFilter: ['data-theme']
+    });
 
     const observerOptions = {
         root: null,
